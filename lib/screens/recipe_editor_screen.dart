@@ -110,6 +110,10 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             _buildExtractionSection(),
             const SizedBox(height: 16),
 
+            // 변곡점 (Waypoints) 섹션
+            _buildWaypointsSection(),
+            const SizedBox(height: 16),
+
             // 온도 섹션
             _buildTemperatureSection(),
             const SizedBox(height: 16),
@@ -415,6 +419,207 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
       ),
     );
   }
+
+  /// 변곡점 (Waypoints) 섹션
+  ///
+  /// Extraction 구간 내에서 시간별 목표값을 변경하는 변곡점을 추가/삭제.
+  Widget _buildWaypointsSection() {
+    final String unit = _recipe.unitLabel;
+    final double maxTarget = _recipe.yAxisMax;
+    final double maxOffset = _recipe.extractionDuration;
+
+    return _SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timeline, size: 16, color: extractionColor),
+              const SizedBox(width: 8),
+              const Text(
+                'Extraction 변곡점',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+              const Spacer(),
+              // 추가 버튼
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, size: 22),
+                color: const Color(0xFF7C5CFC),
+                tooltip: '변곡점 추가',
+                onPressed: maxOffset > 0
+                    ? () {
+                        setState(() {
+                          // 마지막 포인트 이후 적절한 위치에 추가
+                          final lastOffset = _recipe.waypoints.isEmpty
+                              ? 0.0
+                              : _recipe.waypoints.last.timeOffset;
+                          final newOffset =
+                              (lastOffset + 5.0).clamp(0.0, maxOffset);
+                          final lastValue = _recipe.waypoints.isEmpty
+                              ? _recipe.extractionTarget
+                              : _recipe.waypoints.last.targetValue;
+                          _recipe.waypoints.add(ProfileWaypoint(
+                            timeOffset: newOffset,
+                            targetValue: lastValue,
+                          ));
+                          _recipe.sortWaypoints();
+                        });
+                      }
+                    : null,
+              ),
+            ],
+          ),
+
+          if (_recipe.waypoints.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Extraction 구간 동안 ${_recipe.extractionTarget.toStringAsFixed(1)} $unit 유지. '
+                '+ 버튼으로 변곡점을 추가하세요.',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)),
+              ),
+            ),
+
+          // 변곡점 목록
+          for (int i = 0; i < _recipe.waypoints.length; i++)
+            _buildWaypointRow(i, unit, maxTarget, maxOffset),
+        ],
+      ),
+    );
+  }
+
+  /// 개별 변곡점 행
+  Widget _buildWaypointRow(
+    int index,
+    String unit,
+    double maxTarget,
+    double maxOffset,
+  ) {
+    final wp = _recipe.waypoints[index];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: extractionColor.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: extractionColor.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          children: [
+            // 헤더: #번호 + 삭제 버튼
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: extractionColor,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '#${index + 1}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${wp.timeOffset.toStringAsFixed(1)}s → ${wp.targetValue.toStringAsFixed(1)} $unit',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF616161),
+                  ),
+                ),
+                const Spacer(),
+                // 커브 타입 미니 토글
+                SegmentedButton<RampType>(
+                  style: ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    padding: WidgetStatePropertyAll(
+                      const EdgeInsets.symmetric(horizontal: 4),
+                    ),
+                    textStyle: WidgetStatePropertyAll(
+                      const TextStyle(fontSize: 10),
+                    ),
+                  ),
+                  segments: const [
+                    ButtonSegment(
+                      value: RampType.linear,
+                      label: Text('Lin'),
+                    ),
+                    ButtonSegment(
+                      value: RampType.exponential,
+                      label: Text('Exp'),
+                    ),
+                  ],
+                  selected: {wp.rampType},
+                  onSelectionChanged: (s) {
+                    setState(() {
+                      _recipe.waypoints[index] =
+                          wp.copyWith(rampType: s.first);
+                    });
+                  },
+                ),
+                const SizedBox(width: 4),
+                // 삭제 버튼
+                IconButton(
+                  icon: const Icon(Icons.remove_circle_outline, size: 20),
+                  color: Colors.red,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                  tooltip: '삭제',
+                  onPressed: () {
+                    setState(() {
+                      _recipe.waypoints.removeAt(index);
+                    });
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            // 시간 슬라이더
+            _buildSliderRow(
+              label: '시간',
+              value: wp.timeOffset.clamp(0, maxOffset),
+              min: 0,
+              max: maxOffset > 0 ? maxOffset : 1,
+              unit: 's',
+              onChanged: (v) {
+                setState(() {
+                  _recipe.waypoints[index] = wp.copyWith(timeOffset: v);
+                  _recipe.sortWaypoints();
+                });
+              },
+            ),
+            // 목표값 슬라이더
+            _buildSliderRow(
+              label: '목표 $unit',
+              value: wp.targetValue.clamp(0, maxTarget),
+              min: 0,
+              max: maxTarget,
+              unit: unit,
+              onChanged: (v) {
+                setState(() {
+                  _recipe.waypoints[index] = wp.copyWith(targetValue: v);
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const Color extractionColor = Color(0xFFFFC107);
 
   /// 온도 설정 섹션
   Widget _buildTemperatureSection() {

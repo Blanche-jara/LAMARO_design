@@ -15,6 +15,10 @@
 | 4 | 프리인퓨전 시간 | 낮은 압력/유량으로 미리 적셔주는 시간 | s | 0~30s |
 | 5 | 프리인퓨전 압력/유량 | 프리인퓨전 단계에서 유지할 목표값 | bar 또는 ml/s | 0~15bar / 0~10ml/s |
 | 6 | 샷 최대 시간 | 전체 샷 제한 시간 (안전장치/오류 검출용) | s | 10~120s |
+| 7 | 램프 커브 (PI) | Pre-infusion 구간 0→target 상승 커브 형태 | Linear / Exponential | — |
+| 8 | 전환 시간 | PI target → Extraction target 전환에 걸리는 시간 | s | 0.5~10s |
+| 9 | 전환 커브 | PI→Extraction 전환 구간의 커브 형태 | Linear / Exponential | — |
+| 10 | Extraction 변곡점 | Extraction 도중 시간별 목표값 변경 포인트 | (s, bar/ml/s, 커브) | 복수 |
 
 ---
 
@@ -23,7 +27,7 @@
 | 항목 | 결정 | 근거 |
 |------|------|------|
 | 프로파일 모드 | **통일 모드** — 전체 레시피가 압력(bar) 또는 유량(ml/s) 중 하나 | Y축 스케일 단순화, UI 복잡도 감소 |
-| 전환 방식 | **즉시 변경** — Pre-infusion→Extraction 시 목표값 즉시 전환 | 그래프에서 수직선으로 표현, 추가 파라미터 불필요 |
+| 전환 방식 | **램프 전환** — PI→Extraction 시 설정된 전환 시간에 걸쳐 부드럽게 변화 | 물리적으로 즉시 전환 불가, transitionTime 파라미터로 제어 |
 | 온도 | **단일 고정 온도** | 그래프 코너에 배지로 표시 |
 | 구현 범위 | **레시피 편집 UI + 프로파일 프리뷰 그래프** | 실시간 추출 화면은 2차 |
 | Pre-infusion 시간 vs 압력 | **시간 우선** | 시간 초과 시 압력 무관하게 Extraction 진행 |
@@ -114,7 +118,7 @@
 >   1. 나머지 3초 동안 3bar 유지
 >   2. 5초가 지나면 Extraction 진행
 >
-> **그래프 표현**: Pre-infusion 구간에서 0에서 목표값까지 선형 상승 → 유지 → 전환점에서 수직선
+> **그래프 표현**: Pre-infusion 구간에서 0에서 목표값까지 Linear 또는 Exponential 커브로 상승
 
 ---
 
@@ -125,19 +129,34 @@ Y축 (bar 또는 ml/s)
 │
 │ 15 ┤
 │    │
-│  9 ┤         ┌─────────────── extractionTarget (노란색 영역)
-│    │         │
-│  3 ┤ ────────┘ preInfusionTarget (녹색 영역)
-│    │
-│  0 ┤─────────┬──────────────── X축 (시간, s)
-     0    PI시간               최대시간
-                               [93℃]  ← 온도 배지 (우측 상단)
-                               [36g]   ← 종료 무게 라벨
+│  9 ┤              ●─────────●──── waypoint 커브 (노란색, 점 표시)
+│    │            ╱              ╲
+│  7 ┤          ╱                  ●─── 마지막 waypoint까지 유지
+│    │        ╱
+│  3 ┤ ~~~~~~┤  PI (녹색)     Transition (회색 점선)
+│    │       │
+│  0 ┤───────┬─┬────────────────── X축 (시간, s)
+     0    PI시간 +전환             최대시간
+                                   [93℃]  ← 온도 배지
+                                   [36g]   ← 종료 무게
 ```
 
-- **녹색 영역**: 0 ~ preInfusionTime (Pre-infusion)
-- **노란색 영역**: preInfusionTime ~ maxShotTime (Extraction)
-- **수직선**: 전환점 (preInfusionTime 위치)
+### 4구간 구성
+1. **Pre-infusion** (녹색 영역): 0 → PI target, Linear 또는 Exponential 커브
+2. **Transition** (회색 점선): PI target → Extraction target, 설정된 전환 시간에 걸쳐 램프
+3. **Extraction** (노란색 영역): Extraction target 유지 또는 변곡점에 따라 변화
+4. **Waypoints** (노란색 점): Extraction 내 시간별 목표값 변경점, 각각 Lin/Exp 커브 선택 가능
+
+### 그래프 요소
 - **온도 배지**: 그래프 우측 상단 코너
-- **종료 무게**: 별도 라벨 또는 하단 표시
-- **preInfusionTime=0**: 녹색 구간 없이 전체 노란색
+- **종료 무게**: 별도 라벨
+- **PI 종료선**: 점선 수직선 + "PI 5.0s" 라벨
+- **Waypoint 점**: 노란색 원형 마커 (변곡점 위치에만 표시)
+- **preInfusionTime=0**: 녹색/전환 구간 없이 전체 노란색
+
+### Extraction 변곡점 (Waypoints)
+- Extraction 시작 후 N초에 목표값을 변경하는 포인트
+- 각 waypoint에 개별 커브 타입(Linear/Exponential) 설정 가능
+- waypoint 간 보간: 선택된 커브 타입에 따라 직선 또는 지수 커브
+- 마지막 waypoint 이후: 해당 목표값을 maxShotTime까지 유지
+- waypoint 없으면: extractionTarget을 끝까지 수평 유지

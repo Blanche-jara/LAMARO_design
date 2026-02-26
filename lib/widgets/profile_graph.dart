@@ -296,24 +296,14 @@ class ProfileGraph extends StatelessWidget {
         ));
       }
 
-      // 3) Extraction: exTarget 유지 (노란색)
+      // 3) Extraction: waypoint 커브 포함 (노란색)
       final exStart = piTime + transTime;
       if (exStart < maxX) {
-        bars.add(LineChartBarData(
-          spots: [
-            FlSpot(exStart, exTarget),
-            FlSpot(maxX, exTarget),
-          ],
-          isCurved: false,
-          color: extractionColor,
-          barWidth: 2.5,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(show: true, color: extractionFill),
-        ));
+        bars.addAll(_buildExtractionBars(exStart, exTarget, maxX));
       }
     } else {
-      // PI 없음 — 0에서 바로 exTarget으로 램프 후 유지
-      final rampEnd = min(2.0, maxX * 0.1); // 초반 짧은 램프
+      // PI 없음 — 0에서 바로 exTarget으로 램프 후 extraction
+      final rampEnd = min(2.0, maxX * 0.1);
       final rampSpots = _generateRampSpots(
         startTime: 0,
         endTime: rampEnd,
@@ -322,14 +312,9 @@ class ProfileGraph extends StatelessWidget {
         rampType: recipe.extractionRampType,
       );
 
-      // 램프 + 유지를 하나의 라인으로
-      final allSpots = [
-        ...rampSpots,
-        if (rampEnd < maxX) FlSpot(maxX, exTarget),
-      ];
-
+      // 초기 램프 라인
       bars.add(LineChartBarData(
-        spots: allSpots,
+        spots: rampSpots,
         isCurved: recipe.extractionRampType == RampType.exponential,
         preventCurveOverShooting: true,
         color: extractionColor,
@@ -337,8 +322,115 @@ class ProfileGraph extends StatelessWidget {
         dotData: const FlDotData(show: false),
         belowBarData: BarAreaData(show: true, color: extractionFill),
       ));
+
+      // waypoint 포함 extraction 구간
+      if (rampEnd < maxX) {
+        bars.addAll(_buildExtractionBars(rampEnd, exTarget, maxX));
+      }
     }
 
     return bars;
+  }
+
+  /// Extraction 구간 라인 생성 (waypoints 포함)
+  ///
+  /// [exStart] 절대 시작 시각, [initialTarget] 초기 목표값, [maxX] 최대 시간.
+  /// waypoints가 없으면 수평선, 있으면 각 waypoint 간 램프 커브.
+  List<LineChartBarData> _buildExtractionBars(
+    double exStart,
+    double initialTarget,
+    double maxX,
+  ) {
+    final sortedWaypoints = List<ProfileWaypoint>.from(recipe.waypoints)
+      ..sort((a, b) => a.timeOffset.compareTo(b.timeOffset));
+
+    // waypoint가 없으면 수평선
+    if (sortedWaypoints.isEmpty) {
+      return [
+        LineChartBarData(
+          spots: [
+            FlSpot(exStart, initialTarget),
+            FlSpot(maxX, initialTarget),
+          ],
+          isCurved: false,
+          color: extractionColor,
+          barWidth: 2.5,
+          dotData: const FlDotData(show: false),
+          belowBarData: BarAreaData(show: true, color: extractionFill),
+        ),
+      ];
+    }
+
+    // waypoint 간 세그먼트별로 포인트 생성 후 하나의 라인으로 합침
+    final List<FlSpot> allSpots = [];
+    double currentTime = exStart;
+    double currentValue = initialTarget;
+
+    for (final wp in sortedWaypoints) {
+      final wpAbsTime = exStart + wp.timeOffset;
+      if (wpAbsTime > maxX) break;
+      if (wpAbsTime <= currentTime) continue;
+
+      final segmentSpots = _generateRampSpots(
+        startTime: currentTime,
+        endTime: wpAbsTime,
+        startY: currentValue,
+        endY: wp.targetValue,
+        rampType: wp.rampType,
+      );
+
+      // 첫 세그먼트가 아니면 시작점 중복 제거
+      if (allSpots.isNotEmpty && segmentSpots.isNotEmpty) {
+        segmentSpots.removeAt(0);
+      }
+      allSpots.addAll(segmentSpots);
+
+      currentTime = wpAbsTime;
+      currentValue = wp.targetValue;
+    }
+
+    // 마지막 waypoint ~ maxShotTime 수평 유지
+    if (currentTime < maxX) {
+      if (allSpots.isEmpty) {
+        allSpots.add(FlSpot(currentTime, currentValue));
+      }
+      allSpots.add(FlSpot(maxX, currentValue));
+    }
+
+    final hasExponential =
+        sortedWaypoints.any((w) => w.rampType == RampType.exponential);
+
+    return [
+      LineChartBarData(
+        spots: allSpots,
+        isCurved: hasExponential,
+        preventCurveOverShooting: true,
+        curveSmoothness: 0.2,
+        color: extractionColor,
+        barWidth: 2.5,
+        dotData: FlDotData(
+          show: true,
+          getDotPainter: (spot, percent, bar, index) {
+            // waypoint 위치에만 점 표시
+            final isWaypoint = sortedWaypoints.any((w) =>
+                (exStart + w.timeOffset - spot.x).abs() < 0.01);
+            if (!isWaypoint) {
+              return FlDotCirclePainter(
+                radius: 0,
+                color: Colors.transparent,
+                strokeColor: Colors.transparent,
+              );
+            }
+            return FlDotCirclePainter(
+              radius: 4,
+              color: extractionColor,
+              strokeWidth: 2,
+              strokeColor: Colors.white,
+            );
+          },
+        ),
+        belowBarData: BarAreaData(show: true, color: extractionFill),
+      ),
+    ];
   }
 }
