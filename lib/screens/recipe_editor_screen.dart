@@ -6,10 +6,9 @@ import '../widgets/profile_graph.dart';
 
 /// 에스프레소 레시피 편집 화면
 ///
-/// 모든 제어 요소 입력 + 실시간 프로파일 그래프 프리뷰.
-/// 입력값 변경 시 그래프가 즉시 업데이트됨.
+/// 상단: 프로파일 그래프 (전체 너비, 고정)
+/// 하단: 컨트롤 패널 (스크롤, 넓은 화면에서 그리드 배치)
 class RecipeEditorScreen extends StatefulWidget {
-  /// null이면 새 레시피 생성, 값이 있으면 기존 레시피 수정
   final EspressoRecipe? existingRecipe;
 
   const RecipeEditorScreen({super.key, this.existingRecipe});
@@ -21,6 +20,8 @@ class RecipeEditorScreen extends StatefulWidget {
 class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   late EspressoRecipe _recipe;
   late TextEditingController _nameController;
+
+  static const Color extractionColor = Color(0xFFFFC107);
 
   @override
   void initState() {
@@ -85,206 +86,270 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 레시피 이름
-            _buildNameInput(),
-            const SizedBox(height: 16),
-
-            // 프로파일 모드 토글
-            _buildModeToggle(),
-            const SizedBox(height: 16),
-
-            // 프로파일 그래프 프리뷰
-            _buildGraphPreview(),
-            const SizedBox(height: 20),
-
-            // Pre-infusion 섹션
-            _buildPreInfusionSection(),
-            const SizedBox(height: 16),
-
-            // Extraction 섹션
-            _buildExtractionSection(),
-            const SizedBox(height: 16),
-
-            // 변곡점 (Waypoints) 섹션
-            _buildWaypointsSection(),
-            const SizedBox(height: 16),
-
-            // 온도 섹션
-            _buildTemperatureSection(),
-            const SizedBox(height: 16),
-
-            // 종료 조건 섹션
-            _buildEndConditionsSection(),
-            const SizedBox(height: 32),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 레시피 이름 입력
-  Widget _buildNameInput() {
-    return _SectionCard(
-      child: TextField(
-        controller: _nameController,
-        decoration: const InputDecoration(
-          labelText: '레시피 이름',
-          hintText: 'New Recipe',
-          border: OutlineInputBorder(),
-          prefixIcon: Icon(Icons.coffee),
-        ),
-      ),
-    );
-  }
-
-  /// 프로파일 모드 토글 (압력 / 유량)
-  Widget _buildModeToggle() {
-    return _SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Column(
         children: [
-          const Text(
-            '프로파일 모드',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1A1A2E),
+          // ── 상단 고정: 헤더 + 그래프 (전체 너비) ──
+          Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: Color(0xFFE8E8F0))),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Column(
+                children: [
+                  _buildCompactHeader(),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 200,
+                    child: _buildGraphPanel(),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          SegmentedButton<ProfileMode>(
-            segments: const [
-              ButtonSegment(
-                value: ProfileMode.pressure,
-                label: Text('압력 (bar)'),
-                icon: Icon(Icons.speed),
-              ),
-              ButtonSegment(
-                value: ProfileMode.flow,
-                label: Text('유량 (ml/s)'),
-                icon: Icon(Icons.water_drop),
-              ),
-            ],
-            selected: {_recipe.profileMode},
-            onSelectionChanged: (selected) {
-              _updateRecipe((r) => r.copyWith(
-                    profileMode: selected.first,
-                    // 모드 변경 시 기본값으로 리셋
-                    preInfusionTarget:
-                        selected.first == ProfileMode.pressure ? 3.0 : 2.0,
-                    extractionTarget:
-                        selected.first == ProfileMode.pressure ? 9.0 : 4.0,
-                  ));
-            },
+          // ── 하단 스크롤: 컨트롤 패널 ──
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(10),
+                  child: _buildControlsGrid(constraints.maxWidth),
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// 프로파일 그래프 프리뷰
-  Widget _buildGraphPreview() {
-    return _SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                '프로파일 프리뷰',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-              const Spacer(),
-              // 범례
-              _buildLegendItem('Pre-infusion', ProfileGraph.preInfusionColor),
-              const SizedBox(width: 8),
-              _buildLegendItem('Transition', ProfileGraph.transitionColor),
-              const SizedBox(width: 8),
-              _buildLegendItem('Extraction', ProfileGraph.extractionColor),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 200,
-            child: ProfileGraph(recipe: _recipe),
-          ),
-        ],
-      ),
-    );
-  }
+  // ─────────────────────────────────────────────
+  // 헤더: 이름 + 모드 토글 (한 줄)
+  // ─────────────────────────────────────────────
 
-  /// 범례 아이템
-  Widget _buildLegendItem(String label, Color color) {
+  Widget _buildCompactHeader() {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.3),
-            border: Border.all(color: color, width: 1.5),
-            borderRadius: BorderRadius.circular(2),
+        Expanded(
+          child: SizedBox(
+            height: 40,
+            child: TextField(
+              controller: _nameController,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                hintText: 'Recipe Name',
+                prefixIcon: const Icon(Icons.coffee, size: 18),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                isDense: true,
+              ),
+            ),
           ),
         ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF616161)),
+        const SizedBox(width: 8),
+        SegmentedButton<ProfileMode>(
+          style: const ButtonStyle(
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: WidgetStatePropertyAll(
+              EdgeInsets.symmetric(horizontal: 8),
+            ),
+            textStyle: WidgetStatePropertyAll(
+              TextStyle(fontSize: 12),
+            ),
+          ),
+          segments: const [
+            ButtonSegment(
+              value: ProfileMode.pressure,
+              label: Text('bar'),
+              icon: Icon(Icons.speed, size: 14),
+            ),
+            ButtonSegment(
+              value: ProfileMode.flow,
+              label: Text('ml/s'),
+              icon: Icon(Icons.water_drop, size: 14),
+            ),
+          ],
+          selected: {_recipe.profileMode},
+          onSelectionChanged: (selected) {
+            _updateRecipe((r) => r.copyWith(
+                  profileMode: selected.first,
+                  preInfusionTarget:
+                      selected.first == ProfileMode.pressure ? 3.0 : 2.0,
+                  extractionTarget:
+                      selected.first == ProfileMode.pressure ? 9.0 : 4.0,
+                ));
+          },
         ),
       ],
     );
   }
 
-  /// Pre-infusion 설정 섹션
-  Widget _buildPreInfusionSection() {
+  // ─────────────────────────────────────────────
+  // 그래프 패널 (전체 너비)
+  // ─────────────────────────────────────────────
+
+  Widget _buildGraphPanel() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE8E8F0)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              _buildLegendDot('PI', ProfileGraph.preInfusionColor),
+              const SizedBox(width: 6),
+              _buildLegendDot('Trans', ProfileGraph.transitionColor),
+              const SizedBox(width: 6),
+              _buildLegendDot('Ext', ProfileGraph.extractionColor),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Expanded(child: ProfileGraph(recipe: _recipe)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendDot(String label, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 3),
+        Text(label,
+            style: const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E))),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // 컨트롤 그리드 (화면 너비에 따라 배치)
+  // ─────────────────────────────────────────────
+
+  Widget _buildControlsGrid(double availableWidth) {
+    const double gap = 8;
+
+    // 넓은 화면: 4열 (PI | Extraction | 온도+종료 | 변곡점)
+    if (availableWidth >= 900) {
+      return Column(
+        children: [
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildPreInfusionCard()),
+                const SizedBox(width: gap),
+                Expanded(child: _buildExtractionCard()),
+                const SizedBox(width: gap),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _buildTemperatureCard(),
+                      const SizedBox(height: gap),
+                      _buildEndConditionsCard(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: gap),
+          _buildWaypointsCard(),
+        ],
+      );
+    }
+
+    // 중간 화면: 2열
+    if (availableWidth >= 500) {
+      return Column(
+        children: [
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildPreInfusionCard()),
+                const SizedBox(width: gap),
+                Expanded(child: _buildExtractionCard()),
+              ],
+            ),
+          ),
+          const SizedBox(height: gap),
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildTemperatureCard()),
+                const SizedBox(width: gap),
+                Expanded(child: _buildEndConditionsCard()),
+              ],
+            ),
+          ),
+          const SizedBox(height: gap),
+          _buildWaypointsCard(),
+        ],
+      );
+    }
+
+    // 좁은 화면: 1열
+    return Column(
+      children: [
+        _buildPreInfusionCard(),
+        const SizedBox(height: gap),
+        _buildExtractionCard(),
+        const SizedBox(height: gap),
+        _buildTemperatureCard(),
+        const SizedBox(height: gap),
+        _buildEndConditionsCard(),
+        const SizedBox(height: gap),
+        _buildWaypointsCard(),
+        const SizedBox(height: gap),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // 섹션 카드들
+  // ─────────────────────────────────────────────
+
+  Widget _buildPreInfusionCard() {
     final String unit = _recipe.unitLabel;
     final double maxTarget = _recipe.yAxisMax;
 
-    return _SectionCard(
+    return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: ProfileGraph.preInfusionColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Pre-infusion',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-              const Spacer(),
-              if (!_recipe.hasPreInfusion)
-                const Text(
-                  '비활성 (시간 = 0)',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-            ],
+          _sectionHeader(
+            'Pre-infusion',
+            ProfileGraph.preInfusionColor,
+            trailing: !_recipe.hasPreInfusion
+                ? const Text('OFF',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600))
+                : null,
           ),
-          const SizedBox(height: 12),
-
-          // 시간 슬라이더
-          _buildSliderRow(
+          const SizedBox(height: 8),
+          _compactSlider(
             label: '시간',
             value: _recipe.preInfusionTime,
             min: 0,
@@ -293,11 +358,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(preInfusionTime: v)),
           ),
-          const SizedBox(height: 8),
-
-          // 타깃 압력/유량 슬라이더
-          _buildSliderRow(
-            label: '타깃 $unit',
+          _compactSlider(
+            label: '타깃',
             value: _recipe.preInfusionTarget,
             min: 0,
             max: maxTarget,
@@ -306,86 +368,31 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(preInfusionTarget: v)),
           ),
-
-          // 램프 타입 토글
-          if (_recipe.hasPreInfusion) ...[
-            const SizedBox(height: 8),
-            _buildRampTypeToggle(
-              label: '램프 커브',
+          if (_recipe.hasPreInfusion)
+            _compactRampToggle(
               value: _recipe.preInfusionRampType,
               onChanged: (v) =>
                   _updateRecipe((r) => r.copyWith(preInfusionRampType: v)),
-            ),
-          ],
-
-          // 시간 우선 규칙 안내
-          if (_recipe.hasPreInfusion)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha:0.05),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.blue.withValues(alpha:0.2),
-                  ),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 16, color: Colors.blue),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '시간 우선: 설정 시간이 지나면 타깃 도달 여부와 관계없이 Extraction으로 자동 전환됩니다.',
-                        style: TextStyle(fontSize: 11, color: Colors.blue),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
         ],
       ),
     );
   }
 
-  /// Extraction 설정 섹션
-  Widget _buildExtractionSection() {
+  Widget _buildExtractionCard() {
     final String unit = _recipe.unitLabel;
     final double maxTarget = _recipe.yAxisMax;
 
-    return _SectionCard(
+    return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: ProfileGraph.extractionColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Extraction',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // 전환 시간 슬라이더 (PI → Extraction 램프)
-          if (_recipe.hasPreInfusion) ...[
-            _buildSliderRow(
-              label: '전환 시간',
+          _sectionHeader('Extraction', ProfileGraph.extractionColor),
+          const SizedBox(height: 8),
+          if (_recipe.hasPreInfusion)
+            _compactSlider(
+              label: '전환',
               value: _recipe.transitionTime,
               min: 0.5,
               max: 10,
@@ -393,12 +400,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               onChanged: (v) =>
                   _updateRecipe((r) => r.copyWith(transitionTime: v)),
             ),
-            const SizedBox(height: 8),
-          ],
-
-          // 타깃 압력/유량 슬라이더
-          _buildSliderRow(
-            label: '타깃 $unit',
+          _compactSlider(
+            label: '타깃',
             value: _recipe.extractionTarget,
             min: 0,
             max: maxTarget,
@@ -406,11 +409,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(extractionTarget: v)),
           ),
-          const SizedBox(height: 8),
-
-          // 램프 타입 토글 (전환 커브 형태)
-          _buildRampTypeToggle(
-            label: '전환 커브',
+          _compactRampToggle(
             value: _recipe.extractionRampType,
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(extractionRampType: v)),
@@ -420,40 +419,43 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  /// 변곡점 (Waypoints) 섹션
-  ///
-  /// Extraction 구간 내에서 시간별 목표값을 변경하는 변곡점을 추가/삭제.
-  Widget _buildWaypointsSection() {
+  Widget _buildWaypointsCard() {
     final String unit = _recipe.unitLabel;
     final double maxTarget = _recipe.yAxisMax;
     final double maxOffset = _recipe.extractionDuration;
 
-    return _SectionCard(
+    return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Icon(Icons.timeline, size: 16, color: extractionColor),
-              const SizedBox(width: 8),
-              const Text(
-                'Extraction 변곡점',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
+              Icon(Icons.timeline, size: 14, color: extractionColor),
+              const SizedBox(width: 6),
+              const Text('변곡점',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A2E),
+                  )),
               const Spacer(),
-              // 추가 버튼
+              if (_recipe.waypoints.isEmpty)
+                Text(
+                  '${_recipe.extractionTarget.toStringAsFixed(1)} $unit 유지',
+                  style:
+                      const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E)),
+                ),
               IconButton(
-                icon: const Icon(Icons.add_circle_outline, size: 22),
+                icon: const Icon(Icons.add_circle_outline, size: 18),
                 color: const Color(0xFF7C5CFC),
+                padding: EdgeInsets.zero,
+                constraints:
+                    const BoxConstraints(minWidth: 28, minHeight: 28),
                 tooltip: '변곡점 추가',
                 onPressed: maxOffset > 0
                     ? () {
                         setState(() {
-                          // 마지막 포인트 이후 적절한 위치에 추가
                           final lastOffset = _recipe.waypoints.isEmpty
                               ? 0.0
                               : _recipe.waypoints.last.timeOffset;
@@ -473,121 +475,74 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               ),
             ],
           ),
-
-          if (_recipe.waypoints.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                'Extraction 구간 동안 ${_recipe.extractionTarget.toStringAsFixed(1)} $unit 유지. '
-                '+ 버튼으로 변곡점을 추가하세요.',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)),
-              ),
-            ),
-
-          // 변곡점 목록
           for (int i = 0; i < _recipe.waypoints.length; i++)
-            _buildWaypointRow(i, unit, maxTarget, maxOffset),
+            _buildCompactWaypointRow(i, unit, maxTarget, maxOffset),
         ],
       ),
     );
   }
 
-  /// 개별 변곡점 행
-  Widget _buildWaypointRow(
+  Widget _buildCompactWaypointRow(
     int index,
     String unit,
     double maxTarget,
     double maxOffset,
   ) {
     final wp = _recipe.waypoints[index];
-
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 4),
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: extractionColor.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(color: extractionColor.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
-            // 헤더: #번호 + 삭제 버튼
             Row(
               children: [
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
                     color: extractionColor,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(3),
                   ),
-                  child: Text(
-                    '#${index + 1}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
+                  child: Text('#${index + 1}',
+                      style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white)),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Text(
                   '${wp.timeOffset.toStringAsFixed(1)}s → ${wp.targetValue.toStringAsFixed(1)} $unit',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF616161),
-                  ),
+                  style:
+                      const TextStyle(fontSize: 11, color: Color(0xFF616161)),
                 ),
                 const Spacer(),
-                // 커브 타입 미니 토글
-                SegmentedButton<RampType>(
-                  style: ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    padding: WidgetStatePropertyAll(
-                      const EdgeInsets.symmetric(horizontal: 4),
-                    ),
-                    textStyle: WidgetStatePropertyAll(
-                      const TextStyle(fontSize: 10),
-                    ),
-                  ),
-                  segments: const [
-                    ButtonSegment(
-                      value: RampType.linear,
-                      label: Text('Lin'),
-                    ),
-                    ButtonSegment(
-                      value: RampType.exponential,
-                      label: Text('Exp'),
-                    ),
-                  ],
-                  selected: {wp.rampType},
-                  onSelectionChanged: (s) {
+                _miniRampToggle(
+                  value: wp.rampType,
+                  onChanged: (v) {
                     setState(() {
-                      _recipe.waypoints[index] =
-                          wp.copyWith(rampType: s.first);
+                      _recipe.waypoints[index] = wp.copyWith(rampType: v);
                     });
                   },
                 ),
-                const SizedBox(width: 4),
-                // 삭제 버튼
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, size: 20),
-                  color: Colors.red,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                  tooltip: '삭제',
-                  onPressed: () {
+                const SizedBox(width: 2),
+                InkWell(
+                  onTap: () {
                     setState(() {
                       _recipe.waypoints.removeAt(index);
                     });
                   },
+                  child: const Icon(Icons.close, size: 16, color: Colors.red),
                 ),
               ],
             ),
-            const SizedBox(height: 6),
-            // 시간 슬라이더
-            _buildSliderRow(
+            const SizedBox(height: 4),
+            _compactSlider(
               label: '시간',
               value: wp.timeOffset.clamp(0, maxOffset),
               min: 0,
@@ -600,9 +555,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 });
               },
             ),
-            // 목표값 슬라이더
-            _buildSliderRow(
-              label: '목표 $unit',
+            _compactSlider(
+              label: '목표',
               value: wp.targetValue.clamp(0, maxTarget),
               min: 0,
               max: maxTarget,
@@ -619,36 +573,22 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  static const Color extractionColor = Color(0xFFFFC107);
-
-  /// 온도 설정 섹션
-  Widget _buildTemperatureSection() {
-    return _SectionCard(
+  Widget _buildTemperatureCard() {
+    return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Row(
-            children: [
-              Icon(Icons.thermostat, size: 16, color: Color(0xFFFF5722)),
-              SizedBox(width: 8),
-              Text(
-                '추출 온도',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildSliderRow(
-            label: '온도',
+          _sectionHeader('온도', const Color(0xFFFF5722),
+              icon: Icons.thermostat),
+          const SizedBox(height: 8),
+          _compactSlider(
+            label: '',
             value: _recipe.temperature,
             min: 80,
             max: 100,
             unit: '℃',
-            divisions: 40, // 0.5도 단위
+            divisions: 40,
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(temperature: v)),
           ),
@@ -657,36 +597,16 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  /// 종료 조건 설정 섹션
-  Widget _buildEndConditionsSection() {
-    return _SectionCard(
+  Widget _buildEndConditionsCard() {
+    return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Row(
-            children: [
-              Icon(Icons.flag, size: 16, color: Colors.blueGrey),
-              SizedBox(width: 8),
-              Text(
-                '종료 조건',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF1A1A2E),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            '먼저 도달하는 조건으로 샷이 종료됩니다.',
-            style: TextStyle(fontSize: 11, color: Color(0xFF616161)),
-          ),
-          const SizedBox(height: 12),
-
-          // 종료 무게
-          _buildSliderRow(
-            label: '종료 무게',
+          _sectionHeader('종료', Colors.blueGrey, icon: Icons.flag),
+          const SizedBox(height: 8),
+          _compactSlider(
+            label: 'g',
             value: _recipe.endWeight,
             min: 0,
             max: 100,
@@ -694,11 +614,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(endWeight: v)),
           ),
-          const SizedBox(height: 8),
-
-          // 최대 시간 (안전장치)
-          _buildSliderRow(
-            label: '최대 시간',
+          _compactSlider(
+            label: 's',
             value: _recipe.maxShotTime,
             min: 10,
             max: 120,
@@ -706,83 +623,42 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(maxShotTime: v)),
           ),
-
-          // 안전장치 안내
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha:0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: Colors.orange.withValues(alpha:0.2),
-                ),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.warning_amber, size: 16, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '최대 시간은 안전장치입니다. 도달 시 설정 오류 가능성을 경고합니다.',
-                      style: TextStyle(fontSize: 11, color: Colors.orange),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
-  /// 램프 타입 토글 (Linear / Exponential)
-  Widget _buildRampTypeToggle({
-    required String label,
-    required RampType value,
-    required ValueChanged<RampType> onChanged,
-  }) {
+  // ─────────────────────────────────────────────
+  // 공통 위젯들
+  // ─────────────────────────────────────────────
+
+  Widget _sectionHeader(String title, Color color,
+      {IconData? icon, Widget? trailing}) {
     return Row(
       children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A2E)),
+        if (icon != null) ...[
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+        ] else ...[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-        ),
-        Expanded(
-          child: SegmentedButton<RampType>(
-            style: ButtonStyle(
-              visualDensity: VisualDensity.compact,
-              textStyle: WidgetStatePropertyAll(
-                const TextStyle(fontSize: 12),
-              ),
-            ),
-            segments: const [
-              ButtonSegment(
-                value: RampType.linear,
-                label: Text('Linear'),
-                icon: Icon(Icons.trending_up, size: 16),
-              ),
-              ButtonSegment(
-                value: RampType.exponential,
-                label: Text('Expo'),
-                icon: Icon(Icons.ssid_chart, size: 16),
-              ),
-            ],
-            selected: {value},
-            onSelectionChanged: (s) => onChanged(s.first),
-          ),
-        ),
+          const SizedBox(width: 6),
+        ],
+        Text(title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1A1A2E),
+            )),
+        if (trailing != null) ...[const Spacer(), trailing],
       ],
     );
   }
 
-  /// 슬라이더 + 숫자 표시 행
-  Widget _buildSliderRow({
+  Widget _compactSlider({
     required String label,
     required double value,
     required double min,
@@ -792,58 +668,159 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     int? divisions,
     bool enabled = true,
   }) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: enabled ? const Color(0xFF1A1A2E) : Colors.grey,
+    return SizedBox(
+      height: 32,
+      child: Row(
+        children: [
+          if (label.isNotEmpty)
+            SizedBox(
+              width: 28,
+              child: Text(label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: enabled ? const Color(0xFF616161) : Colors.grey,
+                  )),
+            ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape:
+                    const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape:
+                    const RoundSliderOverlayShape(overlayRadius: 12),
+                activeTrackColor:
+                    enabled ? const Color(0xFF7C5CFC) : Colors.grey[300],
+                inactiveTrackColor: Colors.grey[200],
+                thumbColor:
+                    enabled ? const Color(0xFF7C5CFC) : Colors.grey[400],
+              ),
+              child: Slider(
+                value: value.clamp(min, max),
+                min: min,
+                max: max,
+                divisions:
+                    divisions ?? ((max - min) * 2).toInt().clamp(1, 200),
+                onChanged: enabled ? onChanged : null,
+              ),
             ),
           ),
-        ),
-        Expanded(
-          child: Slider(
-            value: value.clamp(min, max),
-            min: min,
-            max: max,
-            divisions: divisions ?? ((max - min) * 2).toInt().clamp(1, 200),
-            onChanged: enabled ? onChanged : null,
-            activeColor: enabled ? const Color(0xFF7C5CFC) : Colors.grey,
-          ),
-        ),
-        SizedBox(
-          width: 72,
-          child: Text(
-            '${value.toStringAsFixed(1)} $unit',
+          Text(
+            '${value.toStringAsFixed(1)}$unit',
             textAlign: TextAlign.right,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
               color: enabled ? const Color(0xFF1A1A2E) : Colors.grey,
             ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _compactRampToggle({
+    required RampType value,
+    required ValueChanged<RampType> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 28,
+            child: Text('커브',
+                style: TextStyle(fontSize: 10, color: Color(0xFF616161))),
+          ),
+          Expanded(
+            child: SegmentedButton<RampType>(
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                padding: WidgetStatePropertyAll(
+                  EdgeInsets.symmetric(horizontal: 4),
+                ),
+                textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 11)),
+              ),
+              segments: const [
+                ButtonSegment(
+                    value: RampType.linear,
+                    label: Text('Linear'),
+                    icon: Icon(Icons.trending_up, size: 14)),
+                ButtonSegment(
+                    value: RampType.exponential,
+                    label: Text('Expo'),
+                    icon: Icon(Icons.ssid_chart, size: 14)),
+              ],
+              selected: {value},
+              onSelectionChanged: (s) => onChanged(s.first),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniRampToggle({
+    required RampType value,
+    required ValueChanged<RampType> onChanged,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _miniToggleChip('Lin', value == RampType.linear,
+            () => onChanged(RampType.linear)),
+        const SizedBox(width: 2),
+        _miniToggleChip('Exp', value == RampType.exponential,
+            () => onChanged(RampType.exponential)),
       ],
+    );
+  }
+
+  Widget _miniToggleChip(String label, bool selected, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: selected
+              ? const Color(0xFF7C5CFC).withValues(alpha: 0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF7C5CFC)
+                : const Color(0xFFE0E0E0),
+            width: 1,
+          ),
+        ),
+        child: Text(label,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              color: selected
+                  ? const Color(0xFF7C5CFC)
+                  : const Color(0xFF9E9E9E),
+            )),
+      ),
     );
   }
 }
 
-/// 섹션 카드 래퍼 위젯
-class _SectionCard extends StatelessWidget {
+/// 압축형 섹션 카드
+class _CompactCard extends StatelessWidget {
   final Widget child;
 
-  const _SectionCard({required this.child});
+  const _CompactCard({required this.child});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE8E8F0)),
       ),
       child: child,
