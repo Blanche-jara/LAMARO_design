@@ -102,8 +102,13 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                   _buildCompactHeader(),
                   const SizedBox(height: 8),
                   SizedBox(
-                    height: 200,
+                    height: 160,
                     child: _buildGraphPanel(),
+                  ),
+                  const SizedBox(height: 4),
+                  SizedBox(
+                    height: 130,
+                    child: _buildYieldGraphPanel(),
                   ),
                 ],
               ),
@@ -212,6 +217,31 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           ),
           const SizedBox(height: 4),
           Expanded(child: ProfileGraph(recipe: _recipe)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildYieldGraphPanel() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE8E8F0)),
+      ),
+      child: Column(
+        children: [
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text('Yield',
+                  style: TextStyle(
+                      fontSize: 10, color: Color(0xFF9E9E9E))),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Expanded(child: YieldGraph(recipe: _recipe)),
         ],
       ),
     );
