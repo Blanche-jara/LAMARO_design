@@ -362,13 +362,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) => _updateRecipe(
                 (r) => r.copyWith(preInfusionTarget: v)),
           ),
-          _compactRampToggle(
-            value: _recipe.preInfusionRampType,
-            onChanged: piOn
-                ? (v) => _updateRecipe(
-                    (r) => r.copyWith(preInfusionRampType: v))
-                : null,
-          ),
         ],
       ),
     );
@@ -408,11 +401,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             unit: unit,
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(extractionTarget: v)),
-          ),
-          _compactRampToggle(
-            value: _recipe.extractionRampType,
-            onChanged: (v) => _updateRecipe(
-                (r) => r.copyWith(extractionRampType: v)),
           ),
         ],
       ),
@@ -525,16 +513,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                       fontSize: 11, color: Color(0xFF616161)),
                 ),
                 const Spacer(),
-                _miniRampToggle(
-                  value: wp.rampType,
-                  onChanged: (v) {
-                    setState(() {
-                      _recipe.waypoints[index] =
-                          wp.copyWith(rampType: v);
-                    });
-                  },
-                ),
-                const SizedBox(width: 2),
                 InkWell(
                   onTap: () {
                     setState(() {
@@ -747,100 +725,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  Widget _compactRampToggle({
-    required RampType value,
-    ValueChanged<RampType>? onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Row(
-        children: [
-          const SizedBox(
-            width: 28,
-            child: Text('커브',
-                style: TextStyle(
-                    fontSize: 10, color: Color(0xFF616161))),
-          ),
-          Expanded(
-            child: SegmentedButton<RampType>(
-              style: const ButtonStyle(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: WidgetStatePropertyAll(
-                  EdgeInsets.symmetric(horizontal: 4),
-                ),
-                textStyle: WidgetStatePropertyAll(
-                    TextStyle(fontSize: 11)),
-              ),
-              segments: const [
-                ButtonSegment(
-                    value: RampType.linear,
-                    label: Text('Linear'),
-                    icon: Icon(Icons.trending_up, size: 14)),
-                ButtonSegment(
-                    value: RampType.exponential,
-                    label: Text('Expo'),
-                    icon: Icon(Icons.ssid_chart, size: 14)),
-              ],
-              selected: {value},
-              onSelectionChanged: onChanged != null
-                  ? (s) => onChanged(s.first)
-                  : null,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniRampToggle({
-    required RampType value,
-    required ValueChanged<RampType> onChanged,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _miniToggleChip('Lin', value == RampType.linear,
-            () => onChanged(RampType.linear)),
-        const SizedBox(width: 2),
-        _miniToggleChip('Exp', value == RampType.exponential,
-            () => onChanged(RampType.exponential)),
-      ],
-    );
-  }
-
-  Widget _miniToggleChip(
-      String label, bool selected, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: selected
-              ? const Color(0xFF7C5CFC).withValues(alpha: 0.15)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: selected
-                ? const Color(0xFF7C5CFC)
-                : const Color(0xFFE0E0E0),
-            width: 1,
-          ),
-        ),
-        child: Text(label,
-            style: TextStyle(
-              fontSize: 9,
-              fontWeight:
-                  selected ? FontWeight.w600 : FontWeight.normal,
-              color: selected
-                  ? const Color(0xFF7C5CFC)
-                  : const Color(0xFF9E9E9E),
-            )),
-      ),
-    );
-  }
 }
 
 /// 압축형 섹션 카드
