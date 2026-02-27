@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 /// 프로파일 모드: 전체 레시피에서 압력 또는 유량 중 하나로 통일
 enum ProfileMode { pressure, flow }
@@ -6,10 +7,9 @@ enum ProfileMode { pressure, flow }
 /// 램프 타입: 목표값까지 도달하는 커브 형태
 enum RampType { linear, exponential }
 
-/// Extraction 구간 내 변곡점 (waypoint)
+/// Extraction 구간 내 변곡점 (waypoint / Stage 3+)
 ///
 /// Extraction 시작 후 [timeOffset]초에 목표값을 [targetValue]로 변경.
-/// 변곡점 간 보간은 [rampType]에 따라 linear 또는 exponential.
 class ProfileWaypoint {
   double timeOffset;   // Extraction 시작 기준 경과 시간 (s)
   double targetValue;  // 목표 압력(bar) 또는 유량(ml/s)
@@ -50,36 +50,32 @@ class ProfileWaypoint {
 
 /// 에스프레소 레시피 데이터 모델
 ///
-/// Pre-infusion + Transition + Extraction(변곡점 포함) 구성.
-/// 프로파일 모드(압력/유량)는 전체 레시피에서 통일.
+/// Pre-infusion (Stage 1) + Extraction (Stage 2) + 변곡점 (Stage 3+)
+/// PI→Extraction 전환은 자동 램프 (별도 설정 불필요).
+/// Extraction 시간 = maxShotTime - preInfusionTime (나머지 전부).
 class EspressoRecipe {
   final String id;
   String name;
   ProfileMode profileMode;
 
-  // Pre-infusion
+  // Pre-infusion (Stage 1)
   double preInfusionTime;       // 초 (0 = 생략)
   double preInfusionTarget;     // bar 또는 ml/s
-  RampType preInfusionRampType; // 0→target 커브 형태
+  RampType preInfusionRampType;
 
-  // Transition (PI → Extraction)
-  double transitionTime;        // 초
+  // Extraction (Stage 2) — 시간 없음, PI 이후 나머지 전부
+  double extractionTarget;      // bar 또는 ml/s
+  RampType extractionRampType;  // PI→Extraction 전환 커브
 
-  // Extraction
-  double extractionTarget;      // bar 또는 ml/s (초기 목표값)
-  RampType extractionRampType;  // 전환 커브 형태
-
-  /// Extraction 구간 변곡점 목록.
-  /// timeOffset 기준 오름차순 정렬.
-  /// 비어있으면 extractionTarget을 끝까지 유지.
+  /// 변곡점 목록 (Stage 3+), timeOffset 기준 오름차순
   List<ProfileWaypoint> waypoints;
 
   // Temperature
-  double temperature;           // ℃ (단일 고정)
+  double temperature; // ℃ (단일 고정)
 
   // End conditions
-  double endWeight;             // g
-  double maxShotTime;           // s (안전장치)
+  double endWeight;   // g
+  double maxShotTime; // s (안전장치)
 
   DateTime createdAt;
   DateTime updatedAt;
@@ -91,7 +87,6 @@ class EspressoRecipe {
     this.preInfusionTime = 5.0,
     this.preInfusionTarget = 3.0,
     this.preInfusionRampType = RampType.linear,
-    this.transitionTime = 2.0,
     this.extractionTarget = 9.0,
     this.extractionRampType = RampType.linear,
     List<ProfileWaypoint>? waypoints,
@@ -112,18 +107,24 @@ class EspressoRecipe {
 
   bool get hasPreInfusion => preInfusionTime > 0;
 
-  /// Extraction 구간 시작 시각 (절대 시간)
-  double get extractionStartTime =>
-      hasPreInfusion ? preInfusionTime + transitionTime : 0;
+  /// Extraction 시작 시각 = PI 종료 시각
+  double get extractionStartTime => preInfusionTime;
 
-  /// Extraction 구간에 사용 가능한 시간 (변곡점 timeOffset 상한)
+  /// Extraction 구간 시간 (나머지 전부)
   double get extractionDuration =>
       maxShotTime - extractionStartTime;
 
-  String get endConditionDescription =>
-      '${endWeight}g 또는 ${maxShotTime}s (먼저 도달 시 종료)';
+  /// PI→Extraction 자동 전환 시간 (그래프 렌더링용)
+  double get autoTransitionTime {
+    if (!hasPreInfusion) return min(2.0, maxShotTime * 0.1);
+    final diff = (extractionTarget - preInfusionTarget).abs();
+    if (diff < 0.01) return 0;
+    return min(2.0, extractionDuration * 0.15);
+  }
 
-  /// waypoints를 timeOffset 기준으로 정렬
+  /// 최대 변곡점 수 (Stage 3~10 = 8개)
+  bool get canAddWaypoint => waypoints.length < 8;
+
   void sortWaypoints() {
     waypoints.sort((a, b) => a.timeOffset.compareTo(b.timeOffset));
   }
@@ -135,7 +136,6 @@ class EspressoRecipe {
         'preInfusionTime': preInfusionTime,
         'preInfusionTarget': preInfusionTarget,
         'preInfusionRampType': preInfusionRampType.index,
-        'transitionTime': transitionTime,
         'extractionTarget': extractionTarget,
         'extractionRampType': extractionRampType.index,
         'waypoints': waypoints.map((w) => w.toJson()).toList(),
@@ -147,16 +147,49 @@ class EspressoRecipe {
       };
 
   factory EspressoRecipe.fromJson(Map<String, dynamic> json) {
+    // Stage 기반 포맷에서 변환
+    if (json.containsKey('stages')) {
+      final stages = (json['stages'] as List<dynamic>)
+          .map((s) => s as Map<String, dynamic>)
+          .toList();
+      return EspressoRecipe(
+        id: json['id'] as String,
+        name: json['name'] as String? ?? 'New Recipe',
+        profileMode: ProfileMode.values[json['profileMode'] as int? ?? 0],
+        preInfusionTime:
+            stages.isNotEmpty ? (stages[0]['duration'] as num).toDouble() : 5.0,
+        preInfusionTarget:
+            stages.isNotEmpty ? (stages[0]['target'] as num).toDouble() : 3.0,
+        preInfusionRampType: stages.isNotEmpty
+            ? RampType.values[stages[0]['rampType'] as int? ?? 0]
+            : RampType.linear,
+        extractionTarget:
+            stages.length > 1 ? (stages[1]['target'] as num).toDouble() : 9.0,
+        extractionRampType: stages.length > 1
+            ? RampType.values[stages[1]['rampType'] as int? ?? 0]
+            : RampType.linear,
+        temperature: (json['temperature'] as num?)?.toDouble() ?? 93.0,
+        endWeight: (json['endWeight'] as num?)?.toDouble() ?? 36.0,
+        maxShotTime: (json['maxShotTime'] as num?)?.toDouble() ?? 40.0,
+        createdAt: json['createdAt'] != null
+            ? DateTime.parse(json['createdAt'] as String)
+            : null,
+        updatedAt: json['updatedAt'] != null
+            ? DateTime.parse(json['updatedAt'] as String)
+            : null,
+      );
+    }
+
     return EspressoRecipe(
       id: json['id'] as String,
       name: json['name'] as String? ?? 'New Recipe',
       profileMode: ProfileMode.values[json['profileMode'] as int? ?? 0],
-      preInfusionTime: (json['preInfusionTime'] as num?)?.toDouble() ?? 5.0,
+      preInfusionTime:
+          (json['preInfusionTime'] as num?)?.toDouble() ?? 5.0,
       preInfusionTarget:
           (json['preInfusionTarget'] as num?)?.toDouble() ?? 3.0,
       preInfusionRampType:
           RampType.values[json['preInfusionRampType'] as int? ?? 0],
-      transitionTime: (json['transitionTime'] as num?)?.toDouble() ?? 2.0,
       extractionTarget:
           (json['extractionTarget'] as num?)?.toDouble() ?? 9.0,
       extractionRampType:
@@ -186,13 +219,11 @@ class EspressoRecipe {
   }
 
   EspressoRecipe copyWith({
-    String? id,
     String? name,
     ProfileMode? profileMode,
     double? preInfusionTime,
     double? preInfusionTarget,
     RampType? preInfusionRampType,
-    double? transitionTime,
     double? extractionTarget,
     RampType? extractionRampType,
     List<ProfileWaypoint>? waypoints,
@@ -201,13 +232,12 @@ class EspressoRecipe {
     double? maxShotTime,
   }) {
     return EspressoRecipe(
-      id: id ?? this.id,
+      id: id,
       name: name ?? this.name,
       profileMode: profileMode ?? this.profileMode,
       preInfusionTime: preInfusionTime ?? this.preInfusionTime,
       preInfusionTarget: preInfusionTarget ?? this.preInfusionTarget,
       preInfusionRampType: preInfusionRampType ?? this.preInfusionRampType,
-      transitionTime: transitionTime ?? this.transitionTime,
       extractionTarget: extractionTarget ?? this.extractionTarget,
       extractionRampType: extractionRampType ?? this.extractionRampType,
       waypoints: waypoints ??

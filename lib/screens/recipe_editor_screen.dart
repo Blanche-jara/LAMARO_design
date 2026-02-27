@@ -7,7 +7,7 @@ import '../widgets/profile_graph.dart';
 /// 에스프레소 레시피 편집 화면
 ///
 /// 상단: 프로파일 그래프 (전체 너비, 고정)
-/// 하단: 컨트롤 패널 (스크롤, 넓은 화면에서 그리드 배치)
+/// 하단: Pre-infusion(Stage1) + Extraction(Stage2) + 변곡점(Stage3+) + 온도/종료
 class RecipeEditorScreen extends StatefulWidget {
   final EspressoRecipe? existingRecipe;
 
@@ -88,11 +88,12 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
       ),
       body: Column(
         children: [
-          // ── 상단 고정: 헤더 + 그래프 (전체 너비) ──
+          // ── 상단 고정: 헤더 + 그래프 ──
           Container(
             decoration: const BoxDecoration(
               color: Colors.white,
-              border: Border(bottom: BorderSide(color: Color(0xFFE8E8F0))),
+              border:
+                  Border(bottom: BorderSide(color: Color(0xFFE8E8F0))),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -108,7 +109,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               ),
             ),
           ),
-          // ── 하단 스크롤: 컨트롤 패널 ──
+          // ── 하단 스크롤: 컨트롤 ──
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -125,7 +126,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // 헤더: 이름 + 모드 토글 (한 줄)
+  // 헤더
   // ─────────────────────────────────────────────
 
   Widget _buildCompactHeader() {
@@ -140,8 +141,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               decoration: InputDecoration(
                 hintText: 'Recipe Name',
                 prefixIcon: const Icon(Icons.coffee, size: 18),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 0),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -158,9 +159,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             padding: WidgetStatePropertyAll(
               EdgeInsets.symmetric(horizontal: 8),
             ),
-            textStyle: WidgetStatePropertyAll(
-              TextStyle(fontSize: 12),
-            ),
+            textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 12)),
           ),
           segments: const [
             ButtonSegment(
@@ -190,7 +189,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // 그래프 패널 (전체 너비)
+  // 그래프
   // ─────────────────────────────────────────────
 
   Widget _buildGraphPanel() {
@@ -207,8 +206,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               _buildLegendDot('PI', ProfileGraph.preInfusionColor),
-              const SizedBox(width: 6),
-              _buildLegendDot('Trans', ProfileGraph.transitionColor),
               const SizedBox(width: 6),
               _buildLegendDot('Ext', ProfileGraph.extractionColor),
             ],
@@ -227,29 +224,30 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
+          decoration:
+              BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 3),
         Text(label,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E))),
+            style:
+                const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E))),
       ],
     );
   }
 
   // ─────────────────────────────────────────────
-  // 컨트롤 그리드 (화면 너비에 따라 배치)
+  // 컨트롤 그리드
   // ─────────────────────────────────────────────
 
   Widget _buildControlsGrid(double availableWidth) {
     const double gap = 8;
+    final wide = availableWidth >= 500;
 
-    // 넓은 화면: 4열 (PI | Extraction | 온도+종료 | 변곡점)
-    if (availableWidth >= 900) {
-      return Column(
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // PI (Stage 1) + Extraction (Stage 2) 나란히
+        if (wide)
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,40 +255,22 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 Expanded(child: _buildPreInfusionCard()),
                 const SizedBox(width: gap),
                 Expanded(child: _buildExtractionCard()),
-                const SizedBox(width: gap),
-                Expanded(
-                  child: Column(
-                    children: [
-                      _buildTemperatureCard(),
-                      const SizedBox(height: gap),
-                      _buildEndConditionsCard(),
-                    ],
-                  ),
-                ),
               ],
             ),
-          ),
+          )
+        else ...[
+          _buildPreInfusionCard(),
           const SizedBox(height: gap),
-          _buildWaypointsCard(),
+          _buildExtractionCard(),
         ],
-      );
-    }
+        const SizedBox(height: gap),
 
-    // 중간 화면: 2열
-    if (availableWidth >= 500) {
-      return Column(
-        children: [
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildPreInfusionCard()),
-                const SizedBox(width: gap),
-                Expanded(child: _buildExtractionCard()),
-              ],
-            ),
-          ),
-          const SizedBox(height: gap),
+        // 변곡점 (Stage 3+)
+        _buildWaypointsCard(),
+        const SizedBox(height: gap),
+
+        // 온도 + 종료조건
+        if (wide)
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,32 +280,19 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 Expanded(child: _buildEndConditionsCard()),
               ],
             ),
-          ),
+          )
+        else ...[
+          _buildTemperatureCard(),
           const SizedBox(height: gap),
-          _buildWaypointsCard(),
+          _buildEndConditionsCard(),
         ],
-      );
-    }
-
-    // 좁은 화면: 1열
-    return Column(
-      children: [
-        _buildPreInfusionCard(),
-        const SizedBox(height: gap),
-        _buildExtractionCard(),
-        const SizedBox(height: gap),
-        _buildTemperatureCard(),
-        const SizedBox(height: gap),
-        _buildEndConditionsCard(),
-        const SizedBox(height: gap),
-        _buildWaypointsCard(),
         const SizedBox(height: gap),
       ],
     );
   }
 
   // ─────────────────────────────────────────────
-  // 섹션 카드들
+  // Pre-infusion (Stage 1)
   // ─────────────────────────────────────────────
 
   Widget _buildPreInfusionCard() {
@@ -340,6 +307,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           _sectionHeader(
             'Pre-infusion',
             ProfileGraph.preInfusionColor,
+            subtitle: 'Stage 1',
             trailing: !_recipe.hasPreInfusion
                 ? const Text('OFF',
                     style: TextStyle(
@@ -371,13 +339,17 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           if (_recipe.hasPreInfusion)
             _compactRampToggle(
               value: _recipe.preInfusionRampType,
-              onChanged: (v) =>
-                  _updateRecipe((r) => r.copyWith(preInfusionRampType: v)),
+              onChanged: (v) => _updateRecipe(
+                  (r) => r.copyWith(preInfusionRampType: v)),
             ),
         ],
       ),
     );
   }
+
+  // ─────────────────────────────────────────────
+  // Extraction (Stage 2) — 시간 없음
+  // ─────────────────────────────────────────────
 
   Widget _buildExtractionCard() {
     final String unit = _recipe.unitLabel;
@@ -388,18 +360,10 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _sectionHeader('Extraction', ProfileGraph.extractionColor),
+          _sectionHeader(
+              'Extraction', ProfileGraph.extractionColor,
+              subtitle: 'Stage 2'),
           const SizedBox(height: 8),
-          if (_recipe.hasPreInfusion)
-            _compactSlider(
-              label: '전환',
-              value: _recipe.transitionTime,
-              min: 0.5,
-              max: 10,
-              unit: 's',
-              onChanged: (v) =>
-                  _updateRecipe((r) => r.copyWith(transitionTime: v)),
-            ),
           _compactSlider(
             label: '타깃',
             value: _recipe.extractionTarget,
@@ -411,13 +375,17 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           ),
           _compactRampToggle(
             value: _recipe.extractionRampType,
-            onChanged: (v) =>
-                _updateRecipe((r) => r.copyWith(extractionRampType: v)),
+            onChanged: (v) => _updateRecipe(
+                (r) => r.copyWith(extractionRampType: v)),
           ),
         ],
       ),
     );
   }
+
+  // ─────────────────────────────────────────────
+  // 변곡점 (Stage 3+)
+  // ─────────────────────────────────────────────
 
   Widget _buildWaypointsCard() {
     final String unit = _recipe.unitLabel;
@@ -443,27 +411,31 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               if (_recipe.waypoints.isEmpty)
                 Text(
                   '${_recipe.extractionTarget.toStringAsFixed(1)} $unit 유지',
-                  style:
-                      const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E)),
+                  style: const TextStyle(
+                      fontSize: 10, color: Color(0xFF9E9E9E)),
                 ),
               IconButton(
-                icon: const Icon(Icons.add_circle_outline, size: 18),
+                icon:
+                    const Icon(Icons.add_circle_outline, size: 18),
                 color: const Color(0xFF7C5CFC),
                 padding: EdgeInsets.zero,
-                constraints:
-                    const BoxConstraints(minWidth: 28, minHeight: 28),
-                tooltip: '변곡점 추가',
-                onPressed: maxOffset > 0
+                constraints: const BoxConstraints(
+                    minWidth: 28, minHeight: 28),
+                tooltip: 'Stage 추가',
+                onPressed: maxOffset > 0 && _recipe.canAddWaypoint
                     ? () {
                         setState(() {
-                          final lastOffset = _recipe.waypoints.isEmpty
-                              ? 0.0
-                              : _recipe.waypoints.last.timeOffset;
-                          final newOffset =
-                              (lastOffset + 5.0).clamp(0.0, maxOffset);
-                          final lastValue = _recipe.waypoints.isEmpty
-                              ? _recipe.extractionTarget
-                              : _recipe.waypoints.last.targetValue;
+                          final lastOffset =
+                              _recipe.waypoints.isEmpty
+                                  ? 0.0
+                                  : _recipe.waypoints.last.timeOffset;
+                          final newOffset = (lastOffset + 5.0)
+                              .clamp(0.0, maxOffset);
+                          final lastValue =
+                              _recipe.waypoints.isEmpty
+                                  ? _recipe.extractionTarget
+                                  : _recipe
+                                      .waypoints.last.targetValue;
                           _recipe.waypoints.add(ProfileWaypoint(
                             timeOffset: newOffset,
                             targetValue: lastValue,
@@ -476,40 +448,44 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             ],
           ),
           for (int i = 0; i < _recipe.waypoints.length; i++)
-            _buildCompactWaypointRow(i, unit, maxTarget, maxOffset),
+            _buildWaypointRow(i, unit, maxTarget, maxOffset),
         ],
       ),
     );
   }
 
-  Widget _buildCompactWaypointRow(
+  Widget _buildWaypointRow(
     int index,
     String unit,
     double maxTarget,
     double maxOffset,
   ) {
     final wp = _recipe.waypoints[index];
+    final stageNum = index + 3; // Stage 3, 4, 5...
+
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: extractionColor.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: extractionColor.withValues(alpha: 0.2)),
+          border: Border.all(
+              color: extractionColor.withValues(alpha: 0.2)),
         ),
         child: Column(
           children: [
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
                     color: extractionColor,
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: Text('#${index + 1}',
+                  child: Text('S$stageNum',
                       style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -518,15 +494,16 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 const SizedBox(width: 6),
                 Text(
                   '${wp.timeOffset.toStringAsFixed(1)}s → ${wp.targetValue.toStringAsFixed(1)} $unit',
-                  style:
-                      const TextStyle(fontSize: 11, color: Color(0xFF616161)),
+                  style: const TextStyle(
+                      fontSize: 11, color: Color(0xFF616161)),
                 ),
                 const Spacer(),
                 _miniRampToggle(
                   value: wp.rampType,
                   onChanged: (v) {
                     setState(() {
-                      _recipe.waypoints[index] = wp.copyWith(rampType: v);
+                      _recipe.waypoints[index] =
+                          wp.copyWith(rampType: v);
                     });
                   },
                 ),
@@ -537,7 +514,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                       _recipe.waypoints.removeAt(index);
                     });
                   },
-                  child: const Icon(Icons.close, size: 16, color: Colors.red),
+                  child: const Icon(Icons.close,
+                      size: 16, color: Colors.red),
                 ),
               ],
             ),
@@ -550,7 +528,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               unit: 's',
               onChanged: (v) {
                 setState(() {
-                  _recipe.waypoints[index] = wp.copyWith(timeOffset: v);
+                  _recipe.waypoints[index] =
+                      wp.copyWith(timeOffset: v);
                   _recipe.sortWaypoints();
                 });
               },
@@ -563,7 +542,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               unit: unit,
               onChanged: (v) {
                 setState(() {
-                  _recipe.waypoints[index] = wp.copyWith(targetValue: v);
+                  _recipe.waypoints[index] =
+                      wp.copyWith(targetValue: v);
                 });
               },
             ),
@@ -573,14 +553,28 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
+  // ─────────────────────────────────────────────
+  // 온도 / 종료조건
+  // ─────────────────────────────────────────────
+
   Widget _buildTemperatureCard() {
     return _CompactCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _sectionHeader('온도', const Color(0xFFFF5722),
-              icon: Icons.thermostat),
+          const Row(
+            children: [
+              Icon(Icons.thermostat, size: 14, color: Color(0xFFFF5722)),
+              SizedBox(width: 6),
+              Text('온도',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A2E),
+                  )),
+            ],
+          ),
           const SizedBox(height: 8),
           _compactSlider(
             label: '',
@@ -603,7 +597,18 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _sectionHeader('종료', Colors.blueGrey, icon: Icons.flag),
+          const Row(
+            children: [
+              Icon(Icons.flag, size: 14, color: Colors.blueGrey),
+              SizedBox(width: 6),
+              Text('종료',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A2E),
+                  )),
+            ],
+          ),
           const SizedBox(height: 8),
           _compactSlider(
             label: 'g',
@@ -629,30 +634,32 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // 공통 위젯들
+  // 공통 위젯
   // ─────────────────────────────────────────────
 
   Widget _sectionHeader(String title, Color color,
-      {IconData? icon, Widget? trailing}) {
+      {String? subtitle, Widget? trailing}) {
     return Row(
       children: [
-        if (icon != null) ...[
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-        ] else ...[
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-        ],
+        Container(
+          width: 8,
+          height: 8,
+          decoration:
+              BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
         Text(title,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: Color(0xFF1A1A2E),
             )),
+        if (subtitle != null) ...[
+          const SizedBox(width: 4),
+          Text('($subtitle)',
+              style: const TextStyle(
+                  fontSize: 10, color: Color(0xFF9E9E9E))),
+        ],
         if (trailing != null) ...[const Spacer(), trailing],
       ],
     );
@@ -678,29 +685,33 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               child: Text(label,
                   style: TextStyle(
                     fontSize: 10,
-                    color: enabled ? const Color(0xFF616161) : Colors.grey,
+                    color: enabled
+                        ? const Color(0xFF616161)
+                        : Colors.grey,
                   )),
             ),
           Expanded(
             child: SliderTheme(
               data: SliderThemeData(
                 trackHeight: 3,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 12),
-                activeTrackColor:
-                    enabled ? const Color(0xFF7C5CFC) : Colors.grey[300],
+                thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 12),
+                activeTrackColor: enabled
+                    ? const Color(0xFF7C5CFC)
+                    : Colors.grey[300],
                 inactiveTrackColor: Colors.grey[200],
-                thumbColor:
-                    enabled ? const Color(0xFF7C5CFC) : Colors.grey[400],
+                thumbColor: enabled
+                    ? const Color(0xFF7C5CFC)
+                    : Colors.grey[400],
               ),
               child: Slider(
                 value: value.clamp(min, max),
                 min: min,
                 max: max,
-                divisions:
-                    divisions ?? ((max - min) * 2).toInt().clamp(1, 200),
+                divisions: divisions ??
+                    ((max - min) * 2).toInt().clamp(1, 200),
                 onChanged: enabled ? onChanged : null,
               ),
             ),
@@ -730,7 +741,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           const SizedBox(
             width: 28,
             child: Text('커브',
-                style: TextStyle(fontSize: 10, color: Color(0xFF616161))),
+                style: TextStyle(
+                    fontSize: 10, color: Color(0xFF616161))),
           ),
           Expanded(
             child: SegmentedButton<RampType>(
@@ -740,7 +752,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 padding: WidgetStatePropertyAll(
                   EdgeInsets.symmetric(horizontal: 4),
                 ),
-                textStyle: WidgetStatePropertyAll(TextStyle(fontSize: 11)),
+                textStyle: WidgetStatePropertyAll(
+                    TextStyle(fontSize: 11)),
               ),
               segments: const [
                 ButtonSegment(
@@ -777,12 +790,14 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  Widget _miniToggleChip(String label, bool selected, VoidCallback onTap) {
+  Widget _miniToggleChip(
+      String label, bool selected, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
           color: selected
               ? const Color(0xFF7C5CFC).withValues(alpha: 0.15)
@@ -798,7 +813,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         child: Text(label,
             style: TextStyle(
               fontSize: 9,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              fontWeight:
+                  selected ? FontWeight.w600 : FontWeight.normal,
               color: selected
                   ? const Color(0xFF7C5CFC)
                   : const Color(0xFF9E9E9E),

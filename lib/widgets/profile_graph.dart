@@ -5,8 +5,7 @@ import '../models/espresso_recipe.dart';
 
 /// 에스프레소 프로파일 프리뷰 그래프 위젯
 ///
-/// 3구간: Pre-infusion(녹색) → Transition(점선) → Extraction(노란색)
-/// 각 구간의 램프 타입(Linear/Exponential) 반영.
+/// Pre-infusion (녹색) → 자동 전환 → Extraction + 변곡점 (노란색)
 class ProfileGraph extends StatelessWidget {
   final EspressoRecipe recipe;
 
@@ -14,13 +13,11 @@ class ProfileGraph extends StatelessWidget {
 
   static const Color preInfusionColor = Color(0xFF4CAF50);
   static const Color extractionColor = Color(0xFFFFC107);
-  static const Color transitionColor = Color(0xFF9E9E9E);
   static const Color preInfusionFill = Color(0x404CAF50);
   static const Color extractionFill = Color(0x40FFC107);
   static const Color gridColor = Color(0xFFE0E0E0);
   static const Color textColor = Color(0xFF616161);
 
-  /// 커브 포인트 수 (exponential 시 부드러운 곡선용)
   static const int _curveResolution = 20;
 
   @override
@@ -101,16 +98,13 @@ class ProfileGraph extends StatelessWidget {
       gridData: FlGridData(
         show: true,
         drawVerticalLine: true,
-        horizontalInterval: recipe.profileMode == ProfileMode.pressure ? 3 : 2,
+        horizontalInterval:
+            recipe.profileMode == ProfileMode.pressure ? 3 : 2,
         verticalInterval: maxX / 5,
-        getDrawingHorizontalLine: (_) => FlLine(
-          color: gridColor,
-          strokeWidth: 0.5,
-        ),
-        getDrawingVerticalLine: (_) => FlLine(
-          color: gridColor,
-          strokeWidth: 0.5,
-        ),
+        getDrawingHorizontalLine: (_) =>
+            FlLine(color: gridColor, strokeWidth: 0.5),
+        getDrawingVerticalLine: (_) =>
+            FlLine(color: gridColor, strokeWidth: 0.5),
       ),
       titlesData: _buildTitles(maxX),
       borderData: FlBorderData(
@@ -127,11 +121,9 @@ class ProfileGraph extends StatelessWidget {
     if (!recipe.hasPreInfusion) return const ExtraLinesData();
 
     final double piEnd = recipe.preInfusionTime;
-    final double transEnd = piEnd + recipe.transitionTime;
 
     return ExtraLinesData(
       verticalLines: [
-        // PI 종료 지점
         VerticalLine(
           x: piEnd,
           color: preInfusionColor.withValues(alpha: 0.4),
@@ -141,26 +133,20 @@ class ProfileGraph extends StatelessWidget {
             show: true,
             alignment: Alignment.topRight,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
-            style: const TextStyle(fontSize: 10, color: textColor),
-            labelResolver: (_) => 'PI ${piEnd.toStringAsFixed(1)}s',
+            style: const TextStyle(fontSize: 9, color: textColor),
+            labelResolver: (_) => 'S1 ${piEnd.toStringAsFixed(1)}s',
           ),
         ),
-        // 전환 종료 지점 (전환 시간이 0보다 클 때만)
-        if (recipe.transitionTime > 0)
-          VerticalLine(
-            x: transEnd,
-            color: transitionColor.withValues(alpha: 0.3),
-            strokeWidth: 1,
-            dashArray: [2, 4],
-          ),
       ],
     );
   }
 
   FlTitlesData _buildTitles(double maxX) {
     return FlTitlesData(
-      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      topTitles:
+          const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      rightTitles:
+          const AxisTitles(sideTitles: SideTitles(showTitles: false)),
       bottomTitles: AxisTitles(
         axisNameWidget: const Text(
           'Time (s)',
@@ -192,7 +178,8 @@ class ProfileGraph extends StatelessWidget {
         sideTitles: SideTitles(
           showTitles: true,
           reservedSize: 36,
-          interval: recipe.profileMode == ProfileMode.pressure ? 3 : 2,
+          interval:
+              recipe.profileMode == ProfileMode.pressure ? 3 : 2,
           getTitlesWidget: (value, meta) {
             if (value == meta.max || value == meta.min) {
               return const SizedBox.shrink();
@@ -211,9 +198,6 @@ class ProfileGraph extends StatelessWidget {
   }
 
   /// 램프 커브 포인트 생성
-  ///
-  /// [rampType] linear: 직선, exponential: 1 - e^(-3t/T) 형태
-  /// [startTime] ~ [endTime] 구간, [startY] ~ [endY] 범위
   List<FlSpot> _generateRampSpots({
     required double startTime,
     required double endTime,
@@ -227,17 +211,14 @@ class ProfileGraph extends StatelessWidget {
     final deltaY = endY - startY;
 
     if (rampType == RampType.linear) {
-      return [
-        FlSpot(startTime, startY),
-        FlSpot(endTime, endY),
-      ];
+      return [FlSpot(startTime, startY), FlSpot(endTime, endY)];
     }
 
-    // Exponential: 1 - e^(-k*t), k=4 → t=1일 때 ~98% 도달
+    // Exponential: 1 - e^(-k*t), k=4
     const double k = 4.0;
     final List<FlSpot> spots = [];
     for (int i = 0; i <= _curveResolution; i++) {
-      final t = i / _curveResolution; // 0.0 ~ 1.0
+      final t = i / _curveResolution;
       final x = startTime + duration * t;
       final factor = 1.0 - exp(-k * t);
       final y = startY + deltaY * factor;
@@ -251,13 +232,12 @@ class ProfileGraph extends StatelessWidget {
     final double piTarget = recipe.preInfusionTarget;
     final double exTarget = recipe.extractionTarget;
     final double maxX = recipe.maxShotTime;
-    final double transTime = recipe.transitionTime;
     final bool hasPI = recipe.hasPreInfusion;
 
     final List<LineChartBarData> bars = [];
 
     if (hasPI) {
-      // 1) Pre-infusion: 0 → piTarget (녹색)
+      // Pre-infusion (녹색): 0 → piTarget
       final piSpots = _generateRampSpots(
         startTime: 0,
         endTime: piTime,
@@ -275,121 +255,89 @@ class ProfileGraph extends StatelessWidget {
         belowBarData: BarAreaData(show: true, color: preInfusionFill),
       ));
 
-      // 2) Transition: piTarget → exTarget (회색 점선 램프)
-      if (transTime > 0) {
-        final transSpots = _generateRampSpots(
-          startTime: piTime,
-          endTime: piTime + transTime,
-          startY: piTarget,
-          endY: exTarget,
-          rampType: recipe.extractionRampType,
-        );
-        bars.add(LineChartBarData(
-          spots: transSpots,
-          isCurved: recipe.extractionRampType == RampType.exponential,
-          preventCurveOverShooting: true,
-          color: transitionColor,
-          barWidth: 2,
-          dashArray: [6, 4],
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(show: false),
-        ));
-      }
-
-      // 3) Extraction: waypoint 커브 포함 (노란색)
-      final exStart = piTime + transTime;
-      if (exStart < maxX) {
-        bars.addAll(_buildExtractionBars(exStart, exTarget, maxX));
+      // Extraction (노란색): piTarget → exTarget 자동 전환 + waypoints
+      if (piTime < maxX) {
+        bars.addAll(
+            _buildExtractionBars(piTime, piTarget, exTarget, maxX));
       }
     } else {
-      // PI 없음 — 0에서 바로 exTarget으로 램프 후 extraction
-      final rampEnd = min(2.0, maxX * 0.1);
-      final rampSpots = _generateRampSpots(
-        startTime: 0,
-        endTime: rampEnd,
-        startY: 0,
-        endY: exTarget,
-        rampType: recipe.extractionRampType,
-      );
-
-      // 초기 램프 라인
-      bars.add(LineChartBarData(
-        spots: rampSpots,
-        isCurved: recipe.extractionRampType == RampType.exponential,
-        preventCurveOverShooting: true,
-        color: extractionColor,
-        barWidth: 2.5,
-        dotData: const FlDotData(show: false),
-        belowBarData: BarAreaData(show: true, color: extractionFill),
-      ));
-
-      // waypoint 포함 extraction 구간
-      if (rampEnd < maxX) {
-        bars.addAll(_buildExtractionBars(rampEnd, exTarget, maxX));
-      }
+      // PI 없음: 0에서 바로 extraction
+      bars.addAll(_buildExtractionBars(0, 0, exTarget, maxX));
     }
 
     return bars;
   }
 
-  /// Extraction 구간 라인 생성 (waypoints 포함)
+  /// Extraction 라인 생성 (자동 전환 + 변곡점 포함)
   ///
-  /// [exStart] 절대 시작 시각, [initialTarget] 초기 목표값, [maxX] 최대 시간.
-  /// waypoints가 없으면 수평선, 있으면 각 waypoint 간 램프 커브.
+  /// [exStart]: extraction 시작 시각
+  /// [startValue]: 시작값 (piTarget 또는 0)
+  /// [exTarget]: extraction 목표값
+  /// [maxX]: 최대 시간
   List<LineChartBarData> _buildExtractionBars(
     double exStart,
-    double initialTarget,
+    double startValue,
+    double exTarget,
     double maxX,
   ) {
-    final sortedWaypoints = List<ProfileWaypoint>.from(recipe.waypoints)
+    final extractionDur = maxX - exStart;
+    if (extractionDur <= 0) return [];
+
+    // 자동 전환 시간 계산
+    final autoRamp = (startValue - exTarget).abs() > 0.01
+        ? min(2.0, extractionDur * 0.15)
+        : 0.0;
+
+    final sortedWps = List<ProfileWaypoint>.from(recipe.waypoints)
       ..sort((a, b) => a.timeOffset.compareTo(b.timeOffset));
 
-    // waypoint가 없으면 수평선
-    if (sortedWaypoints.isEmpty) {
-      return [
-        LineChartBarData(
-          spots: [
-            FlSpot(exStart, initialTarget),
-            FlSpot(maxX, initialTarget),
-          ],
-          isCurved: false,
-          color: extractionColor,
-          barWidth: 2.5,
-          dotData: const FlDotData(show: false),
-          belowBarData: BarAreaData(show: true, color: extractionFill),
-        ),
-      ];
+    final List<FlSpot> allSpots = [];
+    final List<double> wpAbsTimes = [];
+
+    double currentTime = exStart;
+    double currentValue = startValue;
+
+    // 자동 전환 램프 (startValue → exTarget)
+    if (autoRamp > 0) {
+      final rampEnd = exStart + autoRamp;
+      final rampSpots = _generateRampSpots(
+        startTime: currentTime,
+        endTime: rampEnd,
+        startY: currentValue,
+        endY: exTarget,
+        rampType: recipe.extractionRampType,
+      );
+      allSpots.addAll(rampSpots);
+      currentTime = rampEnd;
+      currentValue = exTarget;
+    } else {
+      allSpots.add(FlSpot(currentTime, currentValue));
     }
 
-    // waypoint 간 세그먼트별로 포인트 생성 후 하나의 라인으로 합침
-    final List<FlSpot> allSpots = [];
-    double currentTime = exStart;
-    double currentValue = initialTarget;
+    // 변곡점 처리
+    for (final wp in sortedWps) {
+      final wpAbs = exStart + wp.timeOffset;
+      if (wpAbs <= currentTime || wpAbs > maxX) continue;
 
-    for (final wp in sortedWaypoints) {
-      final wpAbsTime = exStart + wp.timeOffset;
-      if (wpAbsTime > maxX) break;
-      if (wpAbsTime <= currentTime) continue;
-
-      final segmentSpots = _generateRampSpots(
+      final spots = _generateRampSpots(
         startTime: currentTime,
-        endTime: wpAbsTime,
+        endTime: wpAbs,
         startY: currentValue,
         endY: wp.targetValue,
         rampType: wp.rampType,
       );
 
-      // 첫 세그먼트가 아니면 시작점 중복 제거
-      if (allSpots.isNotEmpty && segmentSpots.isNotEmpty) {
-        segmentSpots.removeAt(0);
+      if (allSpots.isNotEmpty && spots.isNotEmpty) {
+        spots.removeAt(0);
       }
-      allSpots.addAll(segmentSpots);
+      allSpots.addAll(spots);
+      wpAbsTimes.add(wpAbs);
 
-      currentTime = wpAbsTime;
+      currentTime = wpAbs;
       currentValue = wp.targetValue;
     }
 
-    // 마지막 waypoint ~ maxShotTime 수평 유지
+    // 마지막 값 → maxShotTime까지 유지
     if (currentTime < maxX) {
       if (allSpots.isEmpty) {
         allSpots.add(FlSpot(currentTime, currentValue));
@@ -397,24 +345,25 @@ class ProfileGraph extends StatelessWidget {
       allSpots.add(FlSpot(maxX, currentValue));
     }
 
-    final hasExponential =
-        sortedWaypoints.any((w) => w.rampType == RampType.exponential);
+    final hasExpo =
+        sortedWps.any((w) => w.rampType == RampType.exponential) ||
+            (autoRamp > 0 &&
+                recipe.extractionRampType == RampType.exponential);
 
     return [
       LineChartBarData(
         spots: allSpots,
-        isCurved: hasExponential,
+        isCurved: hasExpo,
         preventCurveOverShooting: true,
         curveSmoothness: 0.2,
         color: extractionColor,
         barWidth: 2.5,
         dotData: FlDotData(
-          show: true,
+          show: wpAbsTimes.isNotEmpty,
           getDotPainter: (spot, percent, bar, index) {
-            // waypoint 위치에만 점 표시
-            final isWaypoint = sortedWaypoints.any((w) =>
-                (exStart + w.timeOffset - spot.x).abs() < 0.01);
-            if (!isWaypoint) {
+            final isWp =
+                wpAbsTimes.any((t) => (t - spot.x).abs() < 0.01);
+            if (!isWp) {
               return FlDotCirclePainter(
                 radius: 0,
                 color: Colors.transparent,
