@@ -228,21 +228,21 @@ class ProfileGraph extends StatelessWidget {
   }
 
   List<LineChartBarData> _buildLineBars() {
-    final double piTime = recipe.preInfusionTime;
-    final double piTarget = recipe.preInfusionTarget;
-    final double exTarget = recipe.extractionTarget;
     final double maxX = recipe.maxShotTime;
     final bool hasPI = recipe.hasPreInfusion;
-
     final List<LineChartBarData> bars = [];
 
+    double cursor = 0;
+    double currentValue = 0;
+
+    // Pre-infusion (녹색)
     if (hasPI) {
-      // Pre-infusion (녹색): 0 → piTarget
+      final piEnd = min(cursor + recipe.preInfusionTime, maxX);
       final piSpots = _generateRampSpots(
-        startTime: 0,
-        endTime: piTime,
+        startTime: cursor,
+        endTime: piEnd,
         startY: 0,
-        endY: piTarget,
+        endY: recipe.preInfusionTarget,
         rampType: recipe.preInfusionRampType,
       );
       bars.add(LineChartBarData(
@@ -254,15 +254,13 @@ class ProfileGraph extends StatelessWidget {
         dotData: const FlDotData(show: false),
         belowBarData: BarAreaData(show: true, color: preInfusionFill),
       ));
+      cursor = piEnd;
+      currentValue = recipe.preInfusionTarget;
+    }
 
-      // Extraction (노란색): piTarget → exTarget 자동 전환 + waypoints
-      if (piTime < maxX) {
-        bars.addAll(
-            _buildExtractionBars(piTime, piTarget, exTarget, maxX));
-      }
-    } else {
-      // PI 없음: 0에서 바로 extraction
-      bars.addAll(_buildExtractionBars(0, 0, exTarget, maxX));
+    // Extraction + Waypoints (노란색)
+    if (cursor < maxX) {
+      bars.addAll(_buildExtractionBars(cursor, currentValue));
     }
 
     return bars;
@@ -270,49 +268,46 @@ class ProfileGraph extends StatelessWidget {
 
   /// 시간 t에서의 프로파일 값 (압력/유량) 계산
   ///
-  /// PI, 자동전환, extraction, waypoints 전부 반영.
+  /// 모든 스테이지를 duration 기반으로 순차 처리.
   static double profileValueAt(EspressoRecipe recipe, double t) {
-    final piTime = recipe.preInfusionTime;
-    final piTarget = recipe.preInfusionTarget;
-    final exTarget = recipe.extractionTarget;
-    final hasPI = recipe.hasPreInfusion;
-
     if (t <= 0) return 0;
 
-    // PI 구간
-    if (hasPI && t <= piTime) {
-      return _applyRamp(t / piTime, 0, piTarget, recipe.preInfusionRampType);
-    }
+    double cursor = 0;
+    double prevValue = 0;
 
-    final exStart = hasPI ? piTime : 0.0;
-    final startValue = hasPI ? piTarget : 0.0;
-    final autoRamp = recipe.autoTransitionTime;
-
-    // 자동 전환 구간
-    if (autoRamp > 0 && t < exStart + autoRamp) {
-      final frac = (t - exStart) / autoRamp;
-      return _applyRamp(frac, startValue, exTarget, recipe.extractionRampType);
-    }
-
-    // Waypoints 구간
-    double currentTime = exStart + autoRamp;
-    double currentValue = exTarget;
-
-    final sortedWps = List<ProfileWaypoint>.from(recipe.waypoints)
-      ..sort((a, b) => a.timeOffset.compareTo(b.timeOffset));
-
-    for (final wp in sortedWps) {
-      final wpAbs = exStart + wp.timeOffset;
-      if (wpAbs <= currentTime) continue;
-      if (t <= wpAbs) {
-        final frac = (t - currentTime) / (wpAbs - currentTime);
-        return _applyRamp(frac, currentValue, wp.targetValue, wp.rampType);
+    // PI
+    final piTime = recipe.preInfusionTime;
+    if (piTime > 0) {
+      if (t <= cursor + piTime) {
+        final frac = (t - cursor) / piTime;
+        return _applyRamp(
+            frac, 0, recipe.preInfusionTarget, recipe.preInfusionRampType);
       }
-      currentTime = wpAbs;
-      currentValue = wp.targetValue;
+      cursor += piTime;
+      prevValue = recipe.preInfusionTarget;
     }
 
-    return currentValue; // hold
+    // Extraction
+    final extTime = recipe.extractionTime;
+    if (extTime > 0 && t <= cursor + extTime) {
+      final frac = (t - cursor) / extTime;
+      return _applyRamp(
+          frac, prevValue, recipe.extractionTarget, recipe.extractionRampType);
+    }
+    cursor += extTime;
+    prevValue = recipe.extractionTarget;
+
+    // Waypoints (순서대로)
+    for (final wp in recipe.waypoints) {
+      if (wp.duration > 0 && t <= cursor + wp.duration) {
+        final frac = (t - cursor) / wp.duration;
+        return _applyRamp(frac, prevValue, wp.targetValue, wp.rampType);
+      }
+      cursor += wp.duration;
+      prevValue = wp.targetValue;
+    }
+
+    return prevValue; // 마지막 스테이지 값 유지
   }
 
   static double _applyRamp(
@@ -326,87 +321,64 @@ class ProfileGraph extends StatelessWidget {
     return from + (to - from) * factor;
   }
 
-  /// Extraction 라인 생성 (자동 전환 + 변곡점 포함)
-  ///
-  /// [exStart]: extraction 시작 시각
-  /// [startValue]: 시작값 (piTarget 또는 0)
-  /// [exTarget]: extraction 목표값
-  /// [maxX]: 최대 시간
+  /// Extraction + Waypoints 라인 생성 (duration 기반 순차 처리)
   List<LineChartBarData> _buildExtractionBars(
-    double exStart,
+    double startTime,
     double startValue,
-    double exTarget,
-    double maxX,
   ) {
-    final extractionDur = maxX - exStart;
-    if (extractionDur <= 0) return [];
-
-    // 자동 전환 시간 계산
-    final autoRamp = (startValue - exTarget).abs() > 0.01
-        ? min(2.0, extractionDur * 0.15)
-        : 0.0;
-
-    final sortedWps = List<ProfileWaypoint>.from(recipe.waypoints)
-      ..sort((a, b) => a.timeOffset.compareTo(b.timeOffset));
+    final maxX = recipe.maxShotTime;
+    if (startTime >= maxX) return [];
 
     final List<FlSpot> allSpots = [];
-    final List<double> wpAbsTimes = [];
+    final List<double> stageBoundaries = [];
 
-    double currentTime = exStart;
+    double cursor = startTime;
     double currentValue = startValue;
 
-    // 자동 전환 램프 (startValue → exTarget)
-    if (autoRamp > 0) {
-      final rampEnd = exStart + autoRamp;
-      final rampSpots = _generateRampSpots(
-        startTime: currentTime,
-        endTime: rampEnd,
-        startY: currentValue,
-        endY: exTarget,
-        rampType: recipe.extractionRampType,
-      );
-      allSpots.addAll(rampSpots);
-      currentTime = rampEnd;
-      currentValue = exTarget;
-    } else {
-      allSpots.add(FlSpot(currentTime, currentValue));
-    }
+    // Extraction 램프
+    final extEnd = min(cursor + recipe.extractionTime, maxX);
+    final extSpots = _generateRampSpots(
+      startTime: cursor,
+      endTime: extEnd,
+      startY: currentValue,
+      endY: recipe.extractionTarget,
+      rampType: recipe.extractionRampType,
+    );
+    allSpots.addAll(extSpots);
+    cursor = extEnd;
+    currentValue = recipe.extractionTarget;
 
-    // 변곡점 처리
-    for (final wp in sortedWps) {
-      final wpAbs = exStart + wp.timeOffset;
-      if (wpAbs <= currentTime || wpAbs > maxX) continue;
-
+    // Waypoints (순서대로)
+    for (final wp in recipe.waypoints) {
+      if (cursor >= maxX) break;
+      stageBoundaries.add(cursor);
+      final wpEnd = min(cursor + wp.duration, maxX);
       final spots = _generateRampSpots(
-        startTime: currentTime,
-        endTime: wpAbs,
+        startTime: cursor,
+        endTime: wpEnd,
         startY: currentValue,
         endY: wp.targetValue,
         rampType: wp.rampType,
       );
-
       if (allSpots.isNotEmpty && spots.isNotEmpty) {
         spots.removeAt(0);
       }
       allSpots.addAll(spots);
-      wpAbsTimes.add(wpAbs);
-
-      currentTime = wpAbs;
+      cursor = wpEnd;
       currentValue = wp.targetValue;
     }
 
     // 마지막 값 → maxShotTime까지 유지
-    if (currentTime < maxX) {
+    if (cursor < maxX) {
       if (allSpots.isEmpty) {
-        allSpots.add(FlSpot(currentTime, currentValue));
+        allSpots.add(FlSpot(cursor, currentValue));
       }
       allSpots.add(FlSpot(maxX, currentValue));
     }
 
     final hasExpo =
-        sortedWps.any((w) => w.rampType == RampType.exponential) ||
-            (autoRamp > 0 &&
-                recipe.extractionRampType == RampType.exponential);
+        recipe.extractionRampType == RampType.exponential ||
+            recipe.waypoints.any((w) => w.rampType == RampType.exponential);
 
     return [
       LineChartBarData(
@@ -417,11 +389,11 @@ class ProfileGraph extends StatelessWidget {
         color: extractionColor,
         barWidth: 2.5,
         dotData: FlDotData(
-          show: wpAbsTimes.isNotEmpty,
+          show: stageBoundaries.isNotEmpty,
           getDotPainter: (spot, percent, bar, index) {
-            final isWp =
-                wpAbsTimes.any((t) => (t - spot.x).abs() < 0.01);
-            if (!isWp) {
+            final isBoundary = stageBoundaries
+                .any((t) => (t - spot.x).abs() < 0.01);
+            if (!isBoundary) {
               return FlDotCirclePainter(
                 radius: 0,
                 color: Colors.transparent,
@@ -547,9 +519,7 @@ class YieldGraph extends StatelessWidget {
     if (piSpots.length > 1) {
       bars.add(LineChartBarData(
         spots: piSpots,
-        isCurved: true,
-        preventCurveOverShooting: true,
-        curveSmoothness: 0.15,
+        isCurved: false,
         color: ProfileGraph.preInfusionColor,
         barWidth: 2.5,
         dotData: const FlDotData(show: false),
@@ -560,9 +530,7 @@ class YieldGraph extends StatelessWidget {
     if (exSpots.length > 1) {
       bars.add(LineChartBarData(
         spots: exSpots,
-        isCurved: true,
-        preventCurveOverShooting: true,
-        curveSmoothness: 0.15,
+        isCurved: false,
         color: ProfileGraph.extractionColor,
         barWidth: 2.5,
         dotData: const FlDotData(show: false),
