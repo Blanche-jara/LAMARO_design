@@ -619,15 +619,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(endWeight: v)),
           ),
-          _compactSlider(
-            label: 's',
-            value: _recipe.maxShotTime,
-            min: 10,
-            max: 120,
-            unit: 's',
-            onChanged: (v) =>
-                _updateRecipe((r) => r.copyWith(maxShotTime: v)),
-          ),
         ],
       ),
     );
