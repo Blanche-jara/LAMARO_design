@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/espresso_recipe.dart';
 import '../services/recipe_service.dart';
+import '../widgets/interactive_profile_graph.dart';
 import '../widgets/profile_graph.dart';
 
 /// 에스프레소 레시피 편집 화면
@@ -212,7 +213,12 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             ],
           ),
           const SizedBox(height: 4),
-          Expanded(child: ProfileGraph(recipe: _recipe)),
+          Expanded(
+            child: InteractiveProfileGraph(
+              recipe: _recipe,
+              onRecipeChanged: (r) => setState(() => _recipe = r),
+            ),
+          ),
         ],
       ),
     );

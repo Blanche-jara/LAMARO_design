@@ -20,6 +20,12 @@ class ProfileGraph extends StatelessWidget {
   static const Color gridColor = Color(0xFFE0E0E0);
   static const Color textColor = Color(0xFF616161);
 
+  // 차트 레이아웃 상수 (InteractiveProfileGraph에서 참조)
+  static const double chartLeftReserved = 52.0; // sideTitles(36) + axisName(~16)
+  static const double chartBottomReserved = 44.0; // sideTitles(28) + axisName(~16)
+  static const double chartTopPadding = 8.0;
+  static const double chartRightPadding = 8.0;
+
   static const int _curveResolution = 20;
 
   @override
