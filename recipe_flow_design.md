@@ -20,17 +20,17 @@
 |---------|------|------|
 | time | 절대 시간 좌표 (X축) | s |
 | targetValue | 목표 압력 또는 유량 (Y축) | bar / ml/s |
-| rampType | 이전 노드 → 이 노드까지의 커브 | Linear / Exponential |
+| rampType | 이전 노드 → 이 노드까지의 커브 | Linear / Ease in-out |
 
 ### 프로파일 동작
 ```
 Node 1 (5s, 3bar, Lin):   0→5s   0에서 3bar로 Linear 램프
-Node 2 (10s, 9bar, Exp):  5→10s  3에서 9bar로 Expo 램프
+Node 2 (10s, 9bar, Ease):  5→10s  3에서 9bar로 Ease in-out 램프
 Node 3 (15s, 6bar, Lin):  10→15s 9에서 6bar로 Linear 램프
 (이후):                    15s~   6bar 유지 → 종료조건까지
 ```
 
-Exponential 커브: `1 - e^(-4t)` (빠르게 상승 후 완만)
+Ease in-out 커브: smoothstep `3t² - 2t³` (느리게 시작 → 빠르게 → 느리게 끝, AE 키프레임과 동일 개념)
 
 ---
 

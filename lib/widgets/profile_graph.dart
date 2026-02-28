@@ -220,13 +220,12 @@ class ProfileGraph extends StatelessWidget {
       return [FlSpot(startTime, startY), FlSpot(endTime, endY)];
     }
 
-    // Exponential: 1 - e^(-k*t), k=4
-    const double k = 4.0;
+    // Ease in-out (smoothstep): S커브 — 느리게 시작, 빠르게 중간, 느리게 끝
     final List<FlSpot> spots = [];
     for (int i = 0; i <= _curveResolution; i++) {
       final t = i / _curveResolution;
       final x = startTime + duration * t;
-      final factor = 1.0 - exp(-k * t);
+      final factor = t * t * (3.0 - 2.0 * t); // smoothstep
       final y = startY + deltaY * factor;
       spots.add(FlSpot(x, y));
     }
@@ -451,8 +450,8 @@ class ProfileGraph extends StatelessWidget {
     if (rampType == RampType.linear) {
       return from + (to - from) * fraction;
     }
-    const k = 4.0;
-    final factor = 1.0 - exp(-k * fraction);
+    // Ease in-out (smoothstep)
+    final factor = fraction * fraction * (3.0 - 2.0 * fraction);
     return from + (to - from) * factor;
   }
 }
