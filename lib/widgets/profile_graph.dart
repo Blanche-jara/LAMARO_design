@@ -558,16 +558,15 @@ class SimulationGraph extends StatelessWidget {
     final tempSpots = <FlSpot>[];
 
     double cumYield = 0;
-    bool yieldStopped = false;
 
-    double stopT = maxT; // 추출량 달성 시 여기서 끊김
+    // maxShotTime 넘어서도 endWeight 도달까지 시뮬레이션 연장
+    // 안전 한도: maxT * 3 (무한루프 방지)
+    final simLimit = maxT * 3;
+    double stopT = maxT;
 
-    final steps = (maxT / _dt).ceil();
-    for (int i = 0; i <= steps; i++) {
-      final t = (i * _dt).clamp(0.0, maxT);
-
-      // 이미 추출량 달성 → 모든 라인 중단
-      if (yieldStopped) break;
+    for (int i = 0; ; i++) {
+      final t = i * _dt;
+      if (t > simLimit) break;
 
       // ── 압력/유량 ──
       final profileVal = ProfileGraph.profileValueAt(recipe, t);
@@ -577,7 +576,7 @@ class SimulationGraph extends StatelessWidget {
 
       // ── 추출량 ──
       if (i > 0) {
-        final actualDt = t - ((i - 1) * _dt).clamp(0.0, maxT);
+        final actualDt = _dt;
         final flowRate = recipe.profileMode == ProfileMode.pressure
             ? profileVal * _pressureFlowK
             : profileVal;
@@ -585,8 +584,23 @@ class SimulationGraph extends StatelessWidget {
         cumYield += flowRate * actualDt * yieldNoise;
         if (recipe.endWeight > 0 && cumYield >= endW) {
           cumYield = endW;
-          yieldStopped = true;
+          // 100% 도달 → 이 스텝까지 기록 후 종료
+          yieldSpots.add(FlSpot(t, 10.0));
+          // 온도도 마지막 스텝 기록
+          double temp;
+          const rampTime = 8.0;
+          if (t < rampTime) {
+            final frac = 1.0 - exp(-3.0 * t / rampTime);
+            temp = 25.0 + (targetTemp - 25.0) * frac;
+          } else {
+            final osc = sin(t * 0.8) * (1.0 + rng.nextDouble());
+            temp = targetTemp + osc;
+          }
+          temp = temp.clamp(tempMin, tempMax);
+          tempSpots.add(
+              FlSpot(t, (temp - tempMin) / (tempMax - tempMin) * 10));
           stopT = t;
+          break;
         }
       }
       yieldSpots.add(FlSpot(t, (cumYield / endW * 10).clamp(0.0, 10.0)));

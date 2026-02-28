@@ -660,7 +660,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             label: 'g',
             value: _recipe.endWeight,
             min: 0,
-            max: 100,
+            max: 70,
             unit: 'g',
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(endWeight: v)),
