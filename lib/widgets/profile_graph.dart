@@ -457,179 +457,212 @@ class ProfileGraph extends StatelessWidget {
   }
 }
 
-/// 추출량(Yield) 기반 프로파일 그래프
+/// 추출 시뮬레이션 그래프
 ///
-/// X축 = 누적 추출량(g), Y축 = 압력(bar) 또는 유량(ml/s)
-/// Pre-infusion 구간에서도 소량의 추출이 발생하므로 녹색으로 표시.
-class YieldGraph extends StatelessWidget {
+/// X축 = 시간(s), 모든 메트릭을 정규화(0~10)하여 하나의 차트에 표시.
+/// 압력/유량 (파란색): 설정값 + 랜덤 노이즈
+/// 추출량 (갈색): 시간에 따라 점진적 증가
+/// 온도 (빨간색): 25℃ → 타깃 상승 후 ±1~2℃ 오실레이션
+class SimulationGraph extends StatelessWidget {
   final EspressoRecipe recipe;
 
-  const YieldGraph({super.key, required this.recipe});
+  const SimulationGraph({super.key, required this.recipe});
 
-  static const double _dt = 0.15;
-  // 압력→유량 변환 상수 (g/s per bar, 대략적 모델)
+  static const Color pressureColor = Color(0xFF2196F3); // blue
+  static const Color yieldColor = Color(0xFF795548); // brown
+  static const Color tempColor = Color(0xFFFF5722); // red-orange
+  static const Color gridColor = Color(0xFFE0E0E0);
+  static const Color textColor = Color(0xFF616161);
+
+  static const double _dt = 0.4;
   static const double _pressureFlowK = 0.12;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 8, right: 8),
-      child: LineChart(_buildChart()),
+    final sim = _generateSimulation();
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 8, right: 8),
+          child: LineChart(_buildChart(sim)),
+        ),
+        Positioned(
+          top: 4,
+          right: 12,
+          child: _buildLegend(sim),
+        ),
+      ],
     );
   }
 
-  double _flowRate(double profileValue) {
-    return recipe.profileMode == ProfileMode.pressure
-        ? profileValue * _pressureFlowK
-        : profileValue;
+  Widget _buildLegend(_SimData sim) {
+    final pressLabel = recipe.profileMode == ProfileMode.pressure
+        ? '압력 0~${recipe.yAxisMax.toInt()}bar'
+        : '유량 0~${recipe.yAxisMax.toInt()}ml/s';
+    final yieldLabel = '추출량 0~${sim.yieldMax.toStringAsFixed(0)}g';
+    final tempLabel = '온도 20~100℃';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: gridColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _legendItem(pressureColor, pressLabel),
+          _legendItem(yieldColor, yieldLabel),
+          _legendItem(tempColor, tempLabel),
+        ],
+      ),
+    );
   }
 
-  LineChartData _buildChart() {
+  Widget _legendItem(Color color, String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 3,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(label,
+              style: const TextStyle(fontSize: 8, color: textColor)),
+        ],
+      ),
+    );
+  }
+
+  _SimData _generateSimulation() {
     final maxT = recipe.maxShotTime;
-    final piTime = recipe.preInfusionTime;
-    final hasPI = recipe.hasPreInfusion;
-    final maxY = recipe.yAxisMax;
+    final endW = recipe.endWeight > 0 ? recipe.endWeight : 50.0;
+    final targetTemp = recipe.temperature;
+    final rng = Random(42);
 
-    final endW = recipe.endWeight;
-    final piSpots = <FlSpot>[];
-    final exSpots = <FlSpot>[];
+    final pressMax = recipe.yAxisMax;
+    const double tempMin = 20.0;
+    const double tempMax = 100.0;
+
+    final pressureSpots = <FlSpot>[];
+    final yieldSpots = <FlSpot>[];
+    final tempSpots = <FlSpot>[];
+
     double cumYield = 0;
-    double prevValue = 0;
+    bool yieldStopped = false;
 
-    final int steps = (maxT / _dt).ceil();
+    final steps = (maxT / _dt).ceil();
     for (int i = 0; i <= steps; i++) {
-      final t = min(i * _dt, maxT);
-      final value = ProfileGraph.profileValueAt(recipe, t);
+      final t = (i * _dt).clamp(0.0, maxT);
 
-      // 사다리꼴 적분
-      if (i > 0) {
-        final prevT = min((i - 1) * _dt, maxT);
-        final actualDt = t - prevT;
-        cumYield +=
-            (_flowRate(prevValue) + _flowRate(value)) * 0.5 * actualDt;
-      }
+      // ── 압력/유량 ──
+      final profileVal = ProfileGraph.profileValueAt(recipe, t);
+      final noise = (rng.nextDouble() - 0.5) * 0.6;
+      final actualPressure = (profileVal + noise).clamp(0.0, pressMax);
+      pressureSpots.add(FlSpot(t, actualPressure / pressMax * 10));
 
-      // endWeight 도달 시 정확히 endWeight 지점에서 종료
-      if (endW > 0 && cumYield >= endW) {
-        final endSpot = FlSpot(endW, value);
-        if (hasPI && t <= piTime) {
-          piSpots.add(endSpot);
-        } else {
-          if (exSpots.isEmpty && piSpots.isNotEmpty) {
-            exSpots.add(piSpots.last);
-          }
-          exSpots.add(endSpot);
+      // ── 추출량 ──
+      if (i > 0 && !yieldStopped) {
+        final actualDt = t - ((i - 1) * _dt).clamp(0.0, maxT);
+        final flowRate = recipe.profileMode == ProfileMode.pressure
+            ? profileVal * _pressureFlowK
+            : profileVal;
+        final yieldNoise = 1.0 + (rng.nextDouble() - 0.5) * 0.1;
+        cumYield += flowRate * actualDt * yieldNoise;
+        if (recipe.endWeight > 0 && cumYield >= endW) {
+          cumYield = endW;
+          yieldStopped = true;
         }
-        cumYield = endW;
-        break;
       }
+      yieldSpots.add(FlSpot(t, (cumYield / endW * 10).clamp(0.0, 10.0)));
 
-      final spot = FlSpot(cumYield, value);
-      if (hasPI && t <= piTime) {
-        piSpots.add(spot);
+      // ── 온도 ──
+      double temp;
+      const rampTime = 8.0;
+      if (t < rampTime) {
+        final frac = 1.0 - exp(-3.0 * t / rampTime);
+        temp = 25.0 + (targetTemp - 25.0) * frac;
       } else {
-        if (exSpots.isEmpty && piSpots.isNotEmpty) {
-          exSpots.add(piSpots.last); // 연속성
-        }
-        exSpots.add(spot);
+        final osc = sin(t * 0.8) * (1.0 + rng.nextDouble());
+        temp = targetTemp + osc;
       }
-
-      prevValue = value;
+      temp = temp.clamp(tempMin, tempMax);
+      tempSpots
+          .add(FlSpot(t, (temp - tempMin) / (tempMax - tempMin) * 10));
     }
 
-    // maxShotTime 내에 endWeight 미달 시 마지막 값으로 연장
-    if (endW > 0 && cumYield < endW && prevValue > 0) {
-      final rate = _flowRate(prevValue);
-      if (rate > 0.001) {
-        final endSpot = FlSpot(endW, prevValue);
-        if (exSpots.isNotEmpty) {
-          exSpots.add(endSpot);
-        } else if (piSpots.isNotEmpty) {
-          piSpots.add(endSpot);
-        }
-        cumYield = endW;
-      }
-    }
+    return _SimData(
+      pressureSpots: pressureSpots,
+      yieldSpots: yieldSpots,
+      tempSpots: tempSpots,
+      maxT: maxT,
+      yieldMax: endW,
+    );
+  }
 
-    final totalYield = cumYield;
-    final xCeil = endW > 0
-        ? endW * 1.05
-        : totalYield > 0.5
-            ? totalYield * 1.05
-            : 1.0;
-
-    final bars = <LineChartBarData>[];
-    if (piSpots.length > 1) {
-      bars.add(LineChartBarData(
-        spots: piSpots,
-        isCurved: false,
-        color: ProfileGraph.preInfusionColor,
-        barWidth: 2.5,
-        dotData: const FlDotData(show: false),
-        belowBarData: BarAreaData(
-            show: true, color: ProfileGraph.preInfusionFill),
-      ));
-    }
-    if (exSpots.length > 1) {
-      bars.add(LineChartBarData(
-        spots: exSpots,
-        isCurved: false,
-        color: ProfileGraph.extractionColor,
-        barWidth: 2.5,
-        dotData: const FlDotData(show: false),
-        belowBarData: BarAreaData(
-            show: true, color: ProfileGraph.extractionFill),
-      ));
-    }
-
+  LineChartData _buildChart(_SimData sim) {
     return LineChartData(
       minX: 0,
-      maxX: xCeil,
+      maxX: sim.maxT,
       minY: 0,
-      maxY: maxY,
+      maxY: 10,
       gridData: FlGridData(
         show: true,
         drawVerticalLine: true,
-        horizontalInterval:
-            recipe.profileMode == ProfileMode.pressure ? 3 : 2,
-        verticalInterval: xCeil / 5,
+        horizontalInterval: 2,
+        verticalInterval: sim.maxT / 5,
         getDrawingHorizontalLine: (_) =>
-            FlLine(color: ProfileGraph.gridColor, strokeWidth: 0.5),
+            FlLine(color: gridColor, strokeWidth: 0.5),
         getDrawingVerticalLine: (_) =>
-            FlLine(color: ProfileGraph.gridColor, strokeWidth: 0.5),
+            FlLine(color: gridColor, strokeWidth: 0.5),
       ),
-      titlesData: _buildTitles(xCeil),
+      titlesData: _buildTitles(sim.maxT),
       borderData: FlBorderData(
         show: true,
-        border: Border.all(color: ProfileGraph.gridColor, width: 1),
+        border: Border.all(color: gridColor, width: 1),
       ),
-      lineBarsData: bars,
-      lineTouchData: const LineTouchData(enabled: false),
-      extraLinesData: _buildExtraLines(xCeil),
-    );
-  }
-
-  ExtraLinesData _buildExtraLines(double maxX) {
-    final ew = recipe.endWeight;
-    if (ew <= 0 || ew >= maxX) return const ExtraLinesData();
-
-    return ExtraLinesData(
-      verticalLines: [
-        VerticalLine(
-          x: ew,
-          color: Colors.blueGrey.withValues(alpha: 0.6),
-          strokeWidth: 1.5,
-          dashArray: [4, 4],
-          label: VerticalLineLabel(
-            show: true,
-            alignment: Alignment.topLeft,
-            padding: const EdgeInsets.only(right: 4, bottom: 4),
-            style: const TextStyle(
-                fontSize: 9, color: ProfileGraph.textColor),
-            labelResolver: (_) => '${ew.toStringAsFixed(0)}g',
-          ),
+      lineBarsData: [
+        // 압력/유량
+        LineChartBarData(
+          spots: sim.pressureSpots,
+          isCurved: true,
+          curveSmoothness: 0.15,
+          preventCurveOverShooting: true,
+          color: pressureColor,
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+        ),
+        // 추출량
+        LineChartBarData(
+          spots: sim.yieldSpots,
+          isCurved: true,
+          curveSmoothness: 0.15,
+          preventCurveOverShooting: true,
+          color: yieldColor,
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
+        ),
+        // 온도
+        LineChartBarData(
+          spots: sim.tempSpots,
+          isCurved: true,
+          curveSmoothness: 0.15,
+          preventCurveOverShooting: true,
+          color: tempColor,
+          barWidth: 2,
+          dotData: const FlDotData(show: false),
         ),
       ],
+      lineTouchData: const LineTouchData(enabled: false),
     );
   }
 
@@ -641,8 +674,8 @@ class YieldGraph extends StatelessWidget {
           const AxisTitles(sideTitles: SideTitles(showTitles: false)),
       bottomTitles: AxisTitles(
         axisNameWidget: const Text(
-          'Yield (g)',
-          style: TextStyle(fontSize: 11, color: ProfileGraph.textColor),
+          'Time (s)',
+          style: TextStyle(fontSize: 11, color: textColor),
         ),
         sideTitles: SideTitles(
           showTitles: true,
@@ -656,39 +689,31 @@ class YieldGraph extends StatelessWidget {
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 value.toStringAsFixed(0),
-                style: const TextStyle(
-                    fontSize: 10, color: ProfileGraph.textColor),
+                style: const TextStyle(fontSize: 10, color: textColor),
               ),
             );
           },
         ),
       ),
-      leftTitles: AxisTitles(
-        axisNameWidget: Text(
-          recipe.unitLabel,
-          style: const TextStyle(
-              fontSize: 11, color: ProfileGraph.textColor),
-        ),
-        sideTitles: SideTitles(
-          showTitles: true,
-          reservedSize: 36,
-          interval:
-              recipe.profileMode == ProfileMode.pressure ? 3 : 2,
-          getTitlesWidget: (value, meta) {
-            if (value == meta.max || value == meta.min) {
-              return const SizedBox.shrink();
-            }
-            return Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: Text(
-                value.toStringAsFixed(0),
-                style: const TextStyle(
-                    fontSize: 10, color: ProfileGraph.textColor),
-              ),
-            );
-          },
-        ),
+      leftTitles: const AxisTitles(
+        sideTitles: SideTitles(showTitles: false),
       ),
     );
   }
+}
+
+class _SimData {
+  final List<FlSpot> pressureSpots;
+  final List<FlSpot> yieldSpots;
+  final List<FlSpot> tempSpots;
+  final double maxT;
+  final double yieldMax;
+
+  _SimData({
+    required this.pressureSpots,
+    required this.yieldSpots,
+    required this.tempSpots,
+    required this.maxT,
+    required this.yieldMax,
+  });
 }

@@ -20,6 +20,7 @@ class RecipeEditorScreen extends StatefulWidget {
 class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   late EspressoRecipe _recipe;
   late TextEditingController _nameController;
+  bool _simExpanded = false;
 
   static const Color extractionColor = Color(0xFFFFC107);
 
@@ -104,11 +105,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                   SizedBox(
                     height: 200,
                     child: _buildGraphPanel(),
-                  ),
-                  const SizedBox(height: 4),
-                  SizedBox(
-                    height: 160,
-                    child: _buildYieldGraphPanel(),
                   ),
                 ],
               ),
@@ -222,31 +218,6 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     );
   }
 
-  Widget _buildYieldGraphPanel() {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE8E8F0)),
-      ),
-      child: Column(
-        children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Text('Yield',
-                  style: TextStyle(
-                      fontSize: 10, color: Color(0xFF9E9E9E))),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Expanded(child: YieldGraph(recipe: _recipe)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildLegendDot(String label, Color color) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -316,6 +287,10 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
           const SizedBox(height: gap),
           _buildEndConditionsCard(),
         ],
+        const SizedBox(height: gap),
+
+        // 시뮬레이션 (드롭다운)
+        _buildSimulationCard(),
         const SizedBox(height: gap),
       ],
     );
@@ -690,6 +665,53 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             onChanged: (v) =>
                 _updateRecipe((r) => r.copyWith(endWeight: v)),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────
+  // 시뮬레이션 (드롭다운)
+  // ─────────────────────────────────────────────
+
+  Widget _buildSimulationCard() {
+    return _CompactCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _simExpanded = !_simExpanded),
+            borderRadius: BorderRadius.circular(6),
+            child: Row(
+              children: [
+                const Icon(Icons.show_chart,
+                    size: 14, color: Color(0xFF2196F3)),
+                const SizedBox(width: 6),
+                const Text('추출 시뮬레이션',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A2E),
+                    )),
+                const Spacer(),
+                Icon(
+                  _simExpanded
+                      ? Icons.expand_less
+                      : Icons.expand_more,
+                  size: 20,
+                  color: const Color(0xFF9E9E9E),
+                ),
+              ],
+            ),
+          ),
+          if (_simExpanded) ...[
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 220,
+              child: SimulationGraph(recipe: _recipe),
+            ),
+          ],
         ],
       ),
     );
