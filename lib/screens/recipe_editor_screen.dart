@@ -7,7 +7,7 @@ import '../widgets/profile_graph.dart';
 /// 에스프레소 레시피 편집 화면
 ///
 /// 상단: 프로파일 그래프 (전체 너비, 고정)
-/// 하단: Pre-infusion(Stage1) + Extraction(Stage2) + 변곡점(Stage3+) + 온도/종료
+/// 하단: Pre-infusion(Node1) + Extraction(Node2) + 변곡점(Node3+) + 온도/종료
 class RecipeEditorScreen extends StatefulWidget {
   final EspressoRecipe? existingRecipe;
 
@@ -276,7 +276,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // PI (Stage 1) + Extraction (Stage 2) 나란히
+        // PI (Node 1) + Extraction (Node 2) 나란히
         if (wide)
           IntrinsicHeight(
             child: Row(
@@ -295,7 +295,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         ],
         const SizedBox(height: gap),
 
-        // 변곡점 (Stage 3+)
+        // 변곡점 (Node 3+)
         _buildWaypointsCard(),
         const SizedBox(height: gap),
 
@@ -322,13 +322,14 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // Pre-infusion (Stage 1)
+  // Pre-infusion (Node 1)
   // ─────────────────────────────────────────────
 
   Widget _buildPreInfusionCard() {
     final String unit = _recipe.unitLabel;
     final double maxTarget = _recipe.yAxisMax;
     final bool piOn = _recipe.hasPreInfusion;
+    final double piDelta = _recipe.preInfusionTime; // Δ = piTime - 0
 
     return _CompactCard(
       child: Column(
@@ -339,8 +340,8 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             'Pre-infusion',
             ProfileGraph.preInfusionColor,
             subtitle: piOn
-                ? 'Stage 1 · ${_recipe.preInfusionTime.toStringAsFixed(1)}s'
-                : 'Stage 1 · OFF',
+                ? 'Node 1 · Δ${piDelta.toStringAsFixed(1)}s'
+                : 'Node 1 · OFF',
           ),
           const SizedBox(height: 8),
           _compactSlider(
@@ -349,8 +350,15 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             min: 0,
             max: 30,
             unit: 's',
-            onChanged: (v) => _updateRecipe(
-                (r) => r.copyWith(preInfusionTime: v)),
+            onChanged: (v) {
+              _updateRecipe((r) {
+                // PI 시간 변경 시 Ext 시간이 PI 보다 작으면 보정
+                final newExt =
+                    r.extractionTime < v ? v : r.extractionTime;
+                return r.copyWith(
+                    preInfusionTime: v, extractionTime: newExt);
+              });
+            },
           ),
           _compactSlider(
             label: '타깃',
@@ -375,12 +383,14 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // Extraction (Stage 2) — 시간 없음
+  // Extraction (Node 2)
   // ─────────────────────────────────────────────
 
   Widget _buildExtractionCard() {
     final String unit = _recipe.unitLabel;
     final double maxTarget = _recipe.yAxisMax;
+    final double piTime = _recipe.preInfusionTime;
+    final double extDelta = _recipe.extractionTime - piTime;
 
     return _CompactCard(
       child: Column(
@@ -389,16 +399,25 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
         children: [
           _sectionHeader(
               'Extraction', ProfileGraph.extractionColor,
-              subtitle: 'Stage 2 · ${_recipe.extractionTime.toStringAsFixed(1)}s'),
+              subtitle:
+                  'Node 2 · Δ${extDelta.toStringAsFixed(1)}s'),
           const SizedBox(height: 8),
           _compactSlider(
             label: '시간',
-            value: _recipe.extractionTime,
-            min: 1,
-            max: 30,
+            value: _recipe.extractionTime.clamp(piTime, _recipe.maxShotTime),
+            min: piTime,
+            max: _recipe.maxShotTime,
             unit: 's',
-            onChanged: (v) => _updateRecipe(
-                (r) => r.copyWith(extractionTime: v)),
+            onChanged: (v) {
+              _updateRecipe((r) {
+                // Ext 시간 변경 시 후속 WP 시간 보정
+                final newWps = r.waypoints.map((wp) {
+                  if (wp.time < v) return wp.copyWith(time: v);
+                  return wp;
+                }).toList();
+                return r.copyWith(extractionTime: v, waypoints: newWps);
+              });
+            },
           ),
           _compactSlider(
             label: '타깃',
@@ -420,7 +439,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
   }
 
   // ─────────────────────────────────────────────
-  // 변곡점 (Stage 3+)
+  // 변곡점 (Node 3+)
   // ─────────────────────────────────────────────
 
   Widget _buildWaypointsCard() {
@@ -456,17 +475,22 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(
                     minWidth: 28, minHeight: 28),
-                tooltip: 'Stage 추가',
+                tooltip: 'Node 추가',
                 onPressed: _recipe.canAddWaypoint
                     ? () {
                         setState(() {
+                          // 이전 노드 시간 + 5s
+                          final prevTime =
+                              _recipe.waypoints.isEmpty
+                                  ? _recipe.extractionTime
+                                  : _recipe.waypoints.last.time;
                           final lastValue =
                               _recipe.waypoints.isEmpty
                                   ? _recipe.extractionTarget
                                   : _recipe
                                       .waypoints.last.targetValue;
                           _recipe.waypoints.add(ProfileWaypoint(
-                            duration: 5.0,
+                            time: prevTime + 5.0,
                             targetValue: lastValue,
                           ));
                         });
@@ -488,7 +512,13 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
     double maxTarget,
   ) {
     final wp = _recipe.waypoints[index];
-    final stageNum = index + 3; // Stage 3, 4, 5...
+    final nodeNum = index + 3; // Node 3, 4, 5...
+
+    // 이전 노드의 시간 (최솟값)
+    final double prevNodeTime = index == 0
+        ? _recipe.extractionTime
+        : _recipe.waypoints[index - 1].time;
+    final double delta = wp.time - prevNodeTime;
 
     return Padding(
       padding: const EdgeInsets.only(top: 4),
@@ -512,7 +542,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                     color: extractionColor,
                     borderRadius: BorderRadius.circular(3),
                   ),
-                  child: Text('S$stageNum',
+                  child: Text('N$nodeNum',
                       style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -520,9 +550,15 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  '${wp.duration.toStringAsFixed(1)}s → ${wp.targetValue.toStringAsFixed(1)} $unit',
+                  '(${wp.time.toStringAsFixed(1)}s, ${wp.targetValue.toStringAsFixed(1)}$unit)',
                   style: const TextStyle(
                       fontSize: 11, color: Color(0xFF616161)),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Δ${delta.toStringAsFixed(1)}s',
+                  style: const TextStyle(
+                      fontSize: 9, color: Color(0xFF9E9E9E)),
                 ),
                 const Spacer(),
                 _miniRampToggle(
@@ -549,14 +585,23 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             const SizedBox(height: 4),
             _compactSlider(
               label: '시간',
-              value: wp.duration,
-              min: 1,
-              max: 30,
+              value: wp.time.clamp(prevNodeTime, _recipe.maxShotTime),
+              min: prevNodeTime,
+              max: _recipe.maxShotTime,
               unit: 's',
               onChanged: (v) {
                 setState(() {
                   _recipe.waypoints[index] =
-                      wp.copyWith(duration: v);
+                      wp.copyWith(time: v);
+                  // 후속 WP 시간 보정
+                  for (int j = index + 1;
+                      j < _recipe.waypoints.length;
+                      j++) {
+                    if (_recipe.waypoints[j].time < v) {
+                      _recipe.waypoints[j] =
+                          _recipe.waypoints[j].copyWith(time: v);
+                    }
+                  }
                 });
               },
             ),
@@ -726,7 +771,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
               child: Slider(
                 value: value.clamp(min, max),
                 min: min,
-                max: max,
+                max: max > min ? max : min + 0.1,
                 divisions: divisions ??
                     ((max - min) * 2).toInt().clamp(1, 200),
                 onChanged: enabled ? onChanged : null,

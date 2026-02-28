@@ -5,7 +5,9 @@ import '../models/espresso_recipe.dart';
 
 /// 에스프레소 프로파일 프리뷰 그래프 위젯
 ///
-/// Pre-infusion (녹색) → 자동 전환 → Extraction + 변곡점 (노란색)
+/// 각 노드는 그래프 상의 좌표점 (시간, 타깃).
+/// Pre-infusion (녹색) → Extraction + 변곡점 (노란색)
+/// 노드 간 커브: Linear 또는 Exponential.
 class ProfileGraph extends StatelessWidget {
   final EspressoRecipe recipe;
 
@@ -120,12 +122,12 @@ class ProfileGraph extends StatelessWidget {
   ExtraLinesData _buildExtraLines() {
     if (!recipe.hasPreInfusion) return const ExtraLinesData();
 
-    final double piEnd = recipe.preInfusionTime;
+    final double piTime = recipe.preInfusionTime;
 
     return ExtraLinesData(
       verticalLines: [
         VerticalLine(
-          x: piEnd,
+          x: piTime,
           color: preInfusionColor.withValues(alpha: 0.4),
           strokeWidth: 1,
           dashArray: [4, 4],
@@ -134,7 +136,7 @@ class ProfileGraph extends StatelessWidget {
             alignment: Alignment.topRight,
             padding: const EdgeInsets.only(left: 4, bottom: 4),
             style: const TextStyle(fontSize: 9, color: textColor),
-            labelResolver: (_) => 'S1 ${piEnd.toStringAsFixed(1)}s',
+            labelResolver: (_) => 'N1 ${piTime.toStringAsFixed(1)}s',
           ),
         ),
       ],
@@ -197,7 +199,11 @@ class ProfileGraph extends StatelessWidget {
     );
   }
 
-  /// 램프 커브 포인트 생성
+  // ─────────────────────────────────────────────
+  // 램프 커브 포인트 생성
+  // ─────────────────────────────────────────────
+
+  /// 두 노드 사이의 커브 포인트 생성
   List<FlSpot> _generateRampSpots({
     required double startTime,
     required double endTime,
@@ -227,6 +233,10 @@ class ProfileGraph extends StatelessWidget {
     return spots;
   }
 
+  // ─────────────────────────────────────────────
+  // 라인 바 생성 (절대 좌표 노드 기반)
+  // ─────────────────────────────────────────────
+
   List<LineChartBarData> _buildLineBars() {
     final double maxX = recipe.maxShotTime;
     final bool hasPI = recipe.hasPreInfusion;
@@ -235,12 +245,12 @@ class ProfileGraph extends StatelessWidget {
     double cursor = 0;
     double currentValue = 0;
 
-    // Pre-infusion (녹색)
+    // Pre-infusion (녹색): (0, 0) → (piTime, piTarget)
     if (hasPI) {
-      final piEnd = min(cursor + recipe.preInfusionTime, maxX);
+      final piTime = min(recipe.preInfusionTime, maxX);
       final piSpots = _generateRampSpots(
-        startTime: cursor,
-        endTime: piEnd,
+        startTime: 0,
+        endTime: piTime,
         startY: 0,
         endY: recipe.preInfusionTarget,
         rampType: recipe.preInfusionRampType,
@@ -251,10 +261,28 @@ class ProfileGraph extends StatelessWidget {
         preventCurveOverShooting: true,
         color: preInfusionColor,
         barWidth: 2.5,
-        dotData: const FlDotData(show: false),
+        dotData: FlDotData(
+          show: true,
+          getDotPainter: (spot, percent, bar, index) {
+            // PI 노드 좌표에 점 표시 (마지막 스폿)
+            if (index == piSpots.length - 1) {
+              return FlDotCirclePainter(
+                radius: 4,
+                color: preInfusionColor,
+                strokeWidth: 2,
+                strokeColor: Colors.white,
+              );
+            }
+            return FlDotCirclePainter(
+              radius: 0,
+              color: Colors.transparent,
+              strokeColor: Colors.transparent,
+            );
+          },
+        ),
         belowBarData: BarAreaData(show: true, color: preInfusionFill),
       ));
-      cursor = piEnd;
+      cursor = piTime;
       currentValue = recipe.preInfusionTarget;
     }
 
@@ -266,62 +294,7 @@ class ProfileGraph extends StatelessWidget {
     return bars;
   }
 
-  /// 시간 t에서의 프로파일 값 (압력/유량) 계산
-  ///
-  /// 모든 스테이지를 duration 기반으로 순차 처리.
-  static double profileValueAt(EspressoRecipe recipe, double t) {
-    if (t <= 0) return 0;
-
-    double cursor = 0;
-    double prevValue = 0;
-
-    // PI
-    final piTime = recipe.preInfusionTime;
-    if (piTime > 0) {
-      if (t <= cursor + piTime) {
-        final frac = (t - cursor) / piTime;
-        return _applyRamp(
-            frac, 0, recipe.preInfusionTarget, recipe.preInfusionRampType);
-      }
-      cursor += piTime;
-      prevValue = recipe.preInfusionTarget;
-    }
-
-    // Extraction
-    final extTime = recipe.extractionTime;
-    if (extTime > 0 && t <= cursor + extTime) {
-      final frac = (t - cursor) / extTime;
-      return _applyRamp(
-          frac, prevValue, recipe.extractionTarget, recipe.extractionRampType);
-    }
-    cursor += extTime;
-    prevValue = recipe.extractionTarget;
-
-    // Waypoints (순서대로)
-    for (final wp in recipe.waypoints) {
-      if (wp.duration > 0 && t <= cursor + wp.duration) {
-        final frac = (t - cursor) / wp.duration;
-        return _applyRamp(frac, prevValue, wp.targetValue, wp.rampType);
-      }
-      cursor += wp.duration;
-      prevValue = wp.targetValue;
-    }
-
-    return prevValue; // 마지막 스테이지 값 유지
-  }
-
-  static double _applyRamp(
-      double fraction, double from, double to, RampType rampType) {
-    fraction = fraction.clamp(0.0, 1.0);
-    if (rampType == RampType.linear) {
-      return from + (to - from) * fraction;
-    }
-    const k = 4.0;
-    final factor = 1.0 - exp(-k * fraction);
-    return from + (to - from) * factor;
-  }
-
-  /// Extraction + Waypoints 라인 생성 (duration 기반 순차 처리)
+  /// Extraction + Waypoints 라인 생성 (절대 좌표 노드 기반)
   List<LineChartBarData> _buildExtractionBars(
     double startTime,
     double startValue,
@@ -330,51 +303,58 @@ class ProfileGraph extends StatelessWidget {
     if (startTime >= maxX) return [];
 
     final List<FlSpot> allSpots = [];
-    final List<double> stageBoundaries = [];
+    final List<double> nodeXCoords = [];
 
     double cursor = startTime;
     double currentValue = startValue;
 
-    // Extraction 램프
-    final extEnd = min(cursor + recipe.extractionTime, maxX);
-    final extSpots = _generateRampSpots(
-      startTime: cursor,
-      endTime: extEnd,
-      startY: currentValue,
-      endY: recipe.extractionTarget,
-      rampType: recipe.extractionRampType,
-    );
-    allSpots.addAll(extSpots);
-    cursor = extEnd;
-    currentValue = recipe.extractionTarget;
+    // 노드 목록: Extraction + Waypoints (절대 시간 좌표)
+    final nodes = <({double time, double target, RampType rampType})>[
+      (
+        time: recipe.extractionTime,
+        target: recipe.extractionTarget,
+        rampType: recipe.extractionRampType,
+      ),
+      ...recipe.waypoints.map((wp) => (
+            time: wp.time,
+            target: wp.targetValue,
+            rampType: wp.rampType,
+          )),
+    ];
 
-    // Waypoints (순서대로)
-    for (final wp in recipe.waypoints) {
+    for (final node in nodes) {
       if (cursor >= maxX) break;
-      stageBoundaries.add(cursor);
-      final wpEnd = min(cursor + wp.duration, maxX);
+
+      final nodeTime = min(node.time, maxX);
+      nodeXCoords.add(nodeTime);
+
       final spots = _generateRampSpots(
         startTime: cursor,
-        endTime: wpEnd,
+        endTime: nodeTime,
         startY: currentValue,
-        endY: wp.targetValue,
-        rampType: wp.rampType,
+        endY: node.target,
+        rampType: node.rampType,
       );
+
+      // 이전 스폿과 중복 방지
       if (allSpots.isNotEmpty && spots.isNotEmpty) {
         spots.removeAt(0);
       }
       allSpots.addAll(spots);
-      cursor = wpEnd;
-      currentValue = wp.targetValue;
+
+      cursor = nodeTime;
+      currentValue = node.target;
     }
 
-    // 마지막 값 → maxShotTime까지 유지
+    // 마지막 노드 → maxShotTime까지 유지
     if (cursor < maxX) {
       if (allSpots.isEmpty) {
         allSpots.add(FlSpot(cursor, currentValue));
       }
       allSpots.add(FlSpot(maxX, currentValue));
     }
+
+    if (allSpots.length < 2) return [];
 
     final hasExpo =
         recipe.extractionRampType == RampType.exponential ||
@@ -389,11 +369,11 @@ class ProfileGraph extends StatelessWidget {
         color: extractionColor,
         barWidth: 2.5,
         dotData: FlDotData(
-          show: stageBoundaries.isNotEmpty,
+          show: nodeXCoords.isNotEmpty,
           getDotPainter: (spot, percent, bar, index) {
-            final isBoundary = stageBoundaries
+            final isNode = nodeXCoords
                 .any((t) => (t - spot.x).abs() < 0.01);
-            if (!isBoundary) {
+            if (!isNode) {
               return FlDotCirclePainter(
                 radius: 0,
                 color: Colors.transparent,
@@ -411,6 +391,69 @@ class ProfileGraph extends StatelessWidget {
         belowBarData: BarAreaData(show: true, color: extractionFill),
       ),
     ];
+  }
+
+  // ─────────────────────────────────────────────
+  // 프로파일 값 계산 (절대 좌표 노드 보간)
+  // ─────────────────────────────────────────────
+
+  /// 시간 t에서의 프로파일 값 (압력/유량)
+  ///
+  /// 노드 = 그래프 상의 좌표점. 노드 간 Lin/Exp 보간.
+  /// 마지막 노드 이후: 해당 값 유지.
+  static double profileValueAt(EspressoRecipe recipe, double t) {
+    if (t <= 0) return 0;
+
+    // 노드 목록 구축: (절대시간, 타깃, 커브)
+    final nodes = <({double time, double target, RampType rampType})>[];
+
+    if (recipe.hasPreInfusion) {
+      nodes.add((
+        time: recipe.preInfusionTime,
+        target: recipe.preInfusionTarget,
+        rampType: recipe.preInfusionRampType,
+      ));
+    }
+    nodes.add((
+      time: recipe.extractionTime,
+      target: recipe.extractionTarget,
+      rampType: recipe.extractionRampType,
+    ));
+    for (final wp in recipe.waypoints) {
+      nodes.add((
+        time: wp.time,
+        target: wp.targetValue,
+        rampType: wp.rampType,
+      ));
+    }
+
+    double prevTime = 0;
+    double prevValue = 0;
+
+    for (final node in nodes) {
+      if (t <= node.time) {
+        final duration = node.time - prevTime;
+        if (duration <= 0) return node.target;
+        final frac = (t - prevTime) / duration;
+        return _applyRamp(frac, prevValue, node.target, node.rampType);
+      }
+      prevTime = node.time;
+      prevValue = node.target;
+    }
+
+    // 마지막 노드 이후: 값 유지
+    return prevValue;
+  }
+
+  static double _applyRamp(
+      double fraction, double from, double to, RampType rampType) {
+    fraction = fraction.clamp(0.0, 1.0);
+    if (rampType == RampType.linear) {
+      return from + (to - from) * fraction;
+    }
+    const k = 4.0;
+    final factor = 1.0 - exp(-k * fraction);
+    return from + (to - from) * factor;
   }
 }
 

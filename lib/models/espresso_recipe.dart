@@ -3,46 +3,48 @@ import 'dart:convert';
 /// 프로파일 모드: 전체 레시피에서 압력 또는 유량 중 하나로 통일
 enum ProfileMode { pressure, flow }
 
-/// 램프 타입: 목표값까지 도달하는 커브 형태
+/// 램프 타입: 이전 노드에서 현재 노드까지의 커브 형태
 enum RampType { linear, exponential }
 
-/// 변곡점 (Stage 3+)
+/// 변곡점 노드 (Node 3+)
 ///
-/// 이전 스테이지 종료 후 [duration]초 동안 [targetValue]로 램프.
+/// 그래프 상의 좌표점: ([time], [targetValue]).
+/// [rampType]은 이전 노드에서 이 노드까지의 커브 형태.
 class ProfileWaypoint {
-  double duration;     // 지속 시간 (s), 최소 1초
-  double targetValue;  // 목표 압력(bar) 또는 유량(ml/s)
-  RampType rampType;   // 이전 값 → targetValue 커브 형태
+  double time;         // 절대 시간 좌표 (s), X축
+  double targetValue;  // 목표 압력(bar) 또는 유량(ml/s), Y축
+  RampType rampType;   // 이전 노드 → 이 노드 커브 형태
 
   ProfileWaypoint({
-    required this.duration,
+    required this.time,
     required this.targetValue,
     this.rampType = RampType.linear,
   });
 
   Map<String, dynamic> toJson() => {
-        'duration': duration,
+        'time': time,
         'targetValue': targetValue,
         'rampType': rampType.index,
       };
 
   factory ProfileWaypoint.fromJson(Map<String, dynamic> json) {
     return ProfileWaypoint(
-      duration: (json['duration'] as num?)?.toDouble() ??
+      time: (json['time'] as num?)?.toDouble() ??
+          (json['duration'] as num?)?.toDouble() ??
           (json['timeOffset'] as num?)?.toDouble() ??
-          5.0,
+          15.0,
       targetValue: (json['targetValue'] as num).toDouble(),
       rampType: RampType.values[json['rampType'] as int? ?? 0],
     );
   }
 
   ProfileWaypoint copyWith({
-    double? duration,
+    double? time,
     double? targetValue,
     RampType? rampType,
   }) {
     return ProfileWaypoint(
-      duration: duration ?? this.duration,
+      time: time ?? this.time,
       targetValue: targetValue ?? this.targetValue,
       rampType: rampType ?? this.rampType,
     );
@@ -51,26 +53,27 @@ class ProfileWaypoint {
 
 /// 에스프레소 레시피 데이터 모델
 ///
-/// 모든 스테이지는 동일 파라미터: 시간(duration), 타깃, 커브(Lin/Exp).
-/// "N초 동안 N bar를 가하라" — 시간 = 지속 시간.
-/// 마지막 스테이지는 종료 조건(endWeight/maxShotTime)까지 유지.
-/// PI(Stage 1): 시간=0이면 비활성. 나머지 스테이지: 최소 1초.
+/// 각 노드는 그래프 상의 좌표점 (시간, 타깃).
+/// "시간 5s, 타깃 9bar" = 5초 시점에 9bar 도달 = 좌표 (5, 9).
+/// 노드 간 커브는 Lin/Exp 선택 가능.
+/// 마지막 노드 이후 종료 조건(endWeight/maxShotTime)까지 유지.
+/// PI(Node 1): 시간=0이면 비활성.
 class EspressoRecipe {
   final String id;
   String name;
   ProfileMode profileMode;
 
-  // Pre-infusion (Stage 1) — 시간=0이면 비활성
-  double preInfusionTime;       // 초 (0 = PI 비활성)
+  // Pre-infusion (Node 1) — 시간=0이면 비활성
+  double preInfusionTime;       // 절대 시간 좌표 (s), 0 = PI 비활성
   double preInfusionTarget;     // bar 또는 ml/s
   RampType preInfusionRampType;
 
-  // Extraction (Stage 2)
-  double extractionTime;        // 초 (램프 지속 시간, 최소 1초)
+  // Extraction (Node 2)
+  double extractionTime;        // 절대 시간 좌표 (s), >= piTime
   double extractionTarget;      // bar 또는 ml/s
   RampType extractionRampType;
 
-  /// 변곡점 목록 (Stage 3+), 순서대로 실행
+  /// 변곡점 노드 목록 (Node 3+), 순서대로
   List<ProfileWaypoint> waypoints;
 
   // Temperature
@@ -90,7 +93,7 @@ class EspressoRecipe {
     this.preInfusionTime = 5.0,
     this.preInfusionTarget = 3.0,
     this.preInfusionRampType = RampType.linear,
-    this.extractionTime = 5.0,
+    this.extractionTime = 10.0,
     this.extractionTarget = 9.0,
     this.extractionRampType = RampType.linear,
     List<ProfileWaypoint>? waypoints,
@@ -111,10 +114,7 @@ class EspressoRecipe {
 
   bool get hasPreInfusion => preInfusionTime > 0;
 
-  /// Extraction 시작 시각 = PI 종료 시각
-  double get extractionStartTime => preInfusionTime;
-
-  /// 최대 변곡점 수 (Stage 3~10 = 8개)
+  /// 최대 변곡점 수 (Node 3~10 = 8개)
   bool get canAddWaypoint => waypoints.length < 8;
 
   Map<String, dynamic> toJson() => {
@@ -155,8 +155,8 @@ class EspressoRecipe {
             ? RampType.values[stages[0]['rampType'] as int? ?? 0]
             : RampType.linear,
         extractionTime: stages.length > 1
-            ? (stages[1]['duration'] as num?)?.toDouble() ?? 5.0
-            : 5.0,
+            ? (stages[1]['duration'] as num?)?.toDouble() ?? 10.0
+            : 10.0,
         extractionTarget: stages.length > 1
             ? (stages[1]['target'] as num).toDouble()
             : 9.0,
@@ -186,7 +186,7 @@ class EspressoRecipe {
       preInfusionRampType:
           RampType.values[json['preInfusionRampType'] as int? ?? 0],
       extractionTime:
-          (json['extractionTime'] as num?)?.toDouble() ?? 5.0,
+          (json['extractionTime'] as num?)?.toDouble() ?? 10.0,
       extractionTarget:
           (json['extractionTarget'] as num?)?.toDouble() ?? 9.0,
       extractionRampType:
