@@ -336,7 +336,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             },
           ),
           _compactSlider(
-            label: '타깃',
+            label: '목표',
             value: _recipe.preInfusionTarget,
             min: 0,
             max: maxTarget,
@@ -395,7 +395,7 @@ class _RecipeEditorScreenState extends State<RecipeEditorScreen> {
             },
           ),
           _compactSlider(
-            label: '타깃',
+            label: '목표',
             value: _recipe.extractionTarget,
             min: 0,
             max: maxTarget,

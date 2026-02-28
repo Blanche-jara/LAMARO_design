@@ -497,10 +497,10 @@ class SimulationGraph extends StatelessWidget {
 
   Widget _buildLegend(_SimData sim) {
     final pressLabel = recipe.profileMode == ProfileMode.pressure
-        ? '압력 0~${recipe.yAxisMax.toInt()}bar'
-        : '유량 0~${recipe.yAxisMax.toInt()}ml/s';
-    final yieldLabel = '추출량 0~${sim.yieldMax.toStringAsFixed(0)}g';
-    final tempLabel = '온도 20~100℃';
+        ? '압력'
+        : '유량';
+    final yieldLabel =
+        '추출량 (${sim.yieldMax.toStringAsFixed(0)}g=100%)';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -515,7 +515,7 @@ class SimulationGraph extends StatelessWidget {
         children: [
           _legendItem(pressureColor, pressLabel),
           _legendItem(yieldColor, yieldLabel),
-          _legendItem(tempColor, tempLabel),
+          _legendItem(tempColor, '온도'),
         ],
       ),
     );
@@ -560,9 +560,14 @@ class SimulationGraph extends StatelessWidget {
     double cumYield = 0;
     bool yieldStopped = false;
 
+    double stopT = maxT; // 추출량 달성 시 여기서 끊김
+
     final steps = (maxT / _dt).ceil();
     for (int i = 0; i <= steps; i++) {
       final t = (i * _dt).clamp(0.0, maxT);
+
+      // 이미 추출량 달성 → 모든 라인 중단
+      if (yieldStopped) break;
 
       // ── 압력/유량 ──
       final profileVal = ProfileGraph.profileValueAt(recipe, t);
@@ -571,7 +576,7 @@ class SimulationGraph extends StatelessWidget {
       pressureSpots.add(FlSpot(t, actualPressure / pressMax * 10));
 
       // ── 추출량 ──
-      if (i > 0 && !yieldStopped) {
+      if (i > 0) {
         final actualDt = t - ((i - 1) * _dt).clamp(0.0, maxT);
         final flowRate = recipe.profileMode == ProfileMode.pressure
             ? profileVal * _pressureFlowK
@@ -581,6 +586,7 @@ class SimulationGraph extends StatelessWidget {
         if (recipe.endWeight > 0 && cumYield >= endW) {
           cumYield = endW;
           yieldStopped = true;
+          stopT = t;
         }
       }
       yieldSpots.add(FlSpot(t, (cumYield / endW * 10).clamp(0.0, 10.0)));
@@ -604,12 +610,16 @@ class SimulationGraph extends StatelessWidget {
       pressureSpots: pressureSpots,
       yieldSpots: yieldSpots,
       tempSpots: tempSpots,
-      maxT: maxT,
+      maxT: stopT,
       yieldMax: endW,
     );
   }
 
   LineChartData _buildChart(_SimData sim) {
+    final pressMax = recipe.yAxisMax;
+    final pressUnit =
+        recipe.profileMode == ProfileMode.pressure ? 'bar' : 'ml/s';
+
     return LineChartData(
       minX: 0,
       maxX: sim.maxT,
@@ -618,14 +628,14 @@ class SimulationGraph extends StatelessWidget {
       gridData: FlGridData(
         show: true,
         drawVerticalLine: true,
-        horizontalInterval: 2,
+        horizontalInterval: 2.5,
         verticalInterval: sim.maxT / 5,
         getDrawingHorizontalLine: (_) =>
             FlLine(color: gridColor, strokeWidth: 0.5),
         getDrawingVerticalLine: (_) =>
             FlLine(color: gridColor, strokeWidth: 0.5),
       ),
-      titlesData: _buildTitles(sim.maxT),
+      titlesData: _buildTitles(sim.maxT, pressMax, pressUnit),
       borderData: FlBorderData(
         show: true,
         border: Border.all(color: gridColor, width: 1),
@@ -666,12 +676,37 @@ class SimulationGraph extends StatelessWidget {
     );
   }
 
-  FlTitlesData _buildTitles(double maxX) {
+  FlTitlesData _buildTitles(
+      double maxX, double pressMax, String pressUnit) {
+    const double tempMin = 20.0;
+    const double tempMax = 100.0;
+
     return FlTitlesData(
       topTitles:
           const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      rightTitles:
-          const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      rightTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 34,
+          interval: 2.5,
+          getTitlesWidget: (value, meta) {
+            if (value == meta.max || value == meta.min) {
+              return const SizedBox.shrink();
+            }
+            final pct = (value / 10 * 100).toInt();
+            return Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                '$pct%',
+                style: const TextStyle(
+                    fontSize: 9,
+                    color: yieldColor,
+                    fontWeight: FontWeight.w500),
+              ),
+            );
+          },
+        ),
+      ),
       bottomTitles: AxisTitles(
         axisNameWidget: const Text(
           'Time (s)',
@@ -695,8 +730,39 @@ class SimulationGraph extends StatelessWidget {
           },
         ),
       ),
-      leftTitles: const AxisTitles(
-        sideTitles: SideTitles(showTitles: false),
+      leftTitles: AxisTitles(
+        sideTitles: SideTitles(
+          showTitles: true,
+          reservedSize: 44,
+          interval: 2.5,
+          getTitlesWidget: (value, meta) {
+            if (value == meta.max || value == meta.min) {
+              return const SizedBox.shrink();
+            }
+            final pressVal = value / 10 * pressMax;
+            final tempVal =
+                tempMin + value / 10 * (tempMax - tempMin);
+            return Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${pressVal.toStringAsFixed(0)}$pressUnit',
+                    style: const TextStyle(
+                        fontSize: 8, color: pressureColor),
+                  ),
+                  Text(
+                    '${tempVal.toStringAsFixed(0)}℃',
+                    style:
+                        const TextStyle(fontSize: 8, color: tempColor),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
