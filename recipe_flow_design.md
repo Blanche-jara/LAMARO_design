@@ -41,7 +41,7 @@ Ease in-out 커브: smoothstep `3t² - 2t³` (느리게 시작 → 빠르게 →
 | 프로파일 모드 | 전체 레시피 통일 (pressure / flow) | bar(0~15) / ml/s(0~10) |
 | 추출 온도 | 단일 고정 온도 | 80~100℃ |
 | 종료 무게 | 무게 도달 시 자동 종료 | 0~70g |
-| 최대 시간 | 안전장치 (강제 종료) | 10~120s |
+| 최대 시간 | 안전장치 (강제 종료), 기본 40s 고정 | — |
 
 종료 조건: **먼저 도달하는 조건이 우선** (무게 or 최대시간)
 
@@ -49,8 +49,13 @@ Ease in-out 커브: smoothstep `3t² - 2t³` (느리게 시작 → 빠르게 →
 
 ## 그래프
 
-### 1. 프로파일 프리뷰 (ProfileGraph)
+### 1. 프로파일 프리뷰 (InteractiveProfileGraph → ProfileGraph)
 레시피 설정값을 그대로 시각화한다. 편집 중 실시간 업데이트.
+
+**인터랙티브 기능:**
+- **라인 위 탭** → 해당 위치에 노드 추가 (시간순 자동 삽입, 기존 노드 시프트)
+- **노드 드래그** → (시간, 목표값) 실시간 변경, 하단 슬라이더도 연동
+- 인접 노드 사이로 시간 클램핑, 최소 0.1s 간격 유지
 
 ```
 Y축 (bar 또는 ml/s)
@@ -75,7 +80,7 @@ Y축 (bar 또는 ml/s)
 ### 2. 추출 시뮬레이션 (SimulationGraph)
 프로파일을 기반으로 추출 과정을 시뮬레이션한다. 드롭다운으로 펼침.
 
-**4개 메트릭을 0~10 정규화하여 단일 차트에 표시:**
+**3개 메트릭을 0~10 정규화하여 단일 차트에 표시:**
 
 | 메트릭 | 색상 | Y축 | 시뮬레이션 방식 |
 |--------|------|-----|----------------|
@@ -140,11 +145,12 @@ Y축 (bar 또는 ml/s)
 ```
 lib/
 ├── models/
-│   └── espresso_recipe.dart    # EspressoRecipe + ProfileWaypoint 데이터 모델
+│   └── espresso_recipe.dart          # EspressoRecipe + ProfileWaypoint 데이터 모델
 ├── services/
-│   └── recipe_service.dart     # CRUD, SharedPreferences 저장
+│   └── recipe_service.dart           # CRUD, SharedPreferences 저장
 ├── screens/
-│   └── recipe_editor_screen.dart  # 편집 화면 (헤더 + 그래프 + 컨트롤)
+│   └── recipe_editor_screen.dart     # 편집 화면 (헤더 + 그래프 + 컨트롤)
 └── widgets/
-    └── profile_graph.dart      # ProfileGraph + SimulationGraph
+    ├── interactive_profile_graph.dart # 터치/드래그 인터랙션 래퍼
+    └── profile_graph.dart            # ProfileGraph + SimulationGraph
 ```

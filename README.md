@@ -1,16 +1,155 @@
-# lamaro_espresso
+# LAMARO Espresso Recipe Editor
 
-A new Flutter project.
+에스프레소 머신 레시피 편집 플로우. 좌표 기반 노드 시스템으로 프로파일을 정의하고, 시뮬레이션 그래프로 추출 결과를 예측한다.
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 좌표 기반 노드 시스템
 
-A few resources to get you started if this is your first Flutter project:
+각 노드는 그래프 상의 **좌표점 (절대시간, 목표값)** 이다.
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+| 노드 | 역할 | 좌표 예시 | 비고 |
+|------|------|-----------|------|
+| Node 1 (PI) | Pre-infusion | (5s, 3bar) | 시간=0이면 비활성 |
+| Node 2 (Ext) | Extraction | (10s, 9bar) | 필수 |
+| Node 3~10 | 변곡점 (Waypoint) | (15s, 6bar) | 최대 8개, 선택적 |
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### 노드 파라미터
+| 파라미터 | 설명 | 단위 |
+|---------|------|------|
+| time | 절대 시간 좌표 (X축) | s |
+| targetValue | 목표 압력 또는 유량 (Y축) | bar / ml/s |
+| rampType | 이전 노드 → 이 노드까지의 커브 | Linear / Ease in-out |
+
+### 프로파일 동작
+```
+Node 1 (5s, 3bar, Lin):   0→5s   0에서 3bar로 Linear 램프
+Node 2 (10s, 9bar, Ease):  5→10s  3에서 9bar로 Ease in-out 램프
+Node 3 (15s, 6bar, Lin):  10→15s 9에서 6bar로 Linear 램프
+(이후):                    15s~   6bar 유지 → 종료조건까지
+```
+
+Ease in-out 커브: smoothstep `3t² - 2t³` (느리게 시작 → 빠르게 → 느리게 끝, AE 키프레임과 동일 개념)
+
+---
+
+## 제어 요소
+
+| 요소 | 설명 | 범위 |
+|------|------|------|
+| 프로파일 모드 | 전체 레시피 통일 (pressure / flow) | bar(0~15) / ml/s(0~10) |
+| 추출 온도 | 단일 고정 온도 | 80~100℃ |
+| 종료 무게 | 무게 도달 시 자동 종료 | 0~70g |
+| 최대 시간 | 안전장치 (강제 종료), 기본 40s 고정 | — |
+
+종료 조건: **먼저 도달하는 조건이 우선** (무게 or 최대시간)
+
+---
+
+## 그래프
+
+### 1. 프로파일 프리뷰 (InteractiveProfileGraph → ProfileGraph)
+레시피 설정값을 그대로 시각화한다. 편집 중 실시간 업데이트.
+
+**인터랙티브 기능:**
+- **라인 위 탭** → 해당 위치에 노드 추가 (시간순 자동 삽입, 기존 노드 시프트)
+- **노드 드래그** → (시간, 목표값) 실시간 변경, 하단 슬라이더도 연동
+- 인접 노드 사이로 시간 클램핑, 최소 0.1s 간격 유지
+
+```
+Y축 (bar 또는 ml/s)
+│
+│  9 ┤        N2 ●─────────
+│    │       ╱             ╲
+│  6 ┤      ╱               ● N3 ─── 유지
+│    │     ╱
+│  3 ┤ ● N1
+│    │╱
+│  0 ┤──┬──┬──┬──┬──────── X축 (s)
+     0  5  10 15          maxShotTime
+                           [93℃]  ← 온도 배지
+                           [36g]  ← 종료 무게
+```
+
+- **Node 1 구간** (녹색): Pre-infusion
+- **Node 2+ 구간** (노란색): Extraction + Waypoints, 노드 좌표에 점 마커
+- Node 1 경계: 수직 점선 + "N1" 라벨
+- PI 시간=0 → 녹색 구간 없이 전체 노란색
+
+### 2. 추출 시뮬레이션 (SimulationGraph)
+프로파일을 기반으로 추출 과정을 시뮬레이션한다. 드롭다운으로 펼침.
+
+**3개 메트릭을 0~10 정규화하여 단일 차트에 표시:**
+
+| 메트릭 | 색상 | Y축 | 시뮬레이션 방식 |
+|--------|------|-----|----------------|
+| 압력/유량 | 파란색 | 좌측 (실제값) | 프로파일값 + ±0.3 노이즈 |
+| 온도 | 빨간색 | 좌측 (20~100℃) | 25℃→타깃 Expo 상승(~8s) + ±1~2℃ 오실레이션 |
+| 추출량 | 갈색 | 우측 (0~100%) | 유량 적분 (압력→유량 변환: k=0.12) + ±5% 노이즈 |
+
+- **추출량이 endWeight(100%)에 도달하면 모든 라인이 끊어짐**
+- X축은 100% 도달 시점까지 자동 확장 (maxShotTime을 초과할 수 있음)
+
+---
+
+## 화면 레이아웃
+
+```
+┌─────────────────────────────────────────┐
+│  [레시피 이름]         [bar] / [ml/s]   │  ← 헤더 + 모드 토글
+├─────────────────────────────────────────┤
+│  ┌─── 프로파일 프리뷰 그래프 ──────┐     │
+│  │  (녹색 PI)  (노란색 Ext+WP)    │     │
+│  └────────────────────────────────┘     │
+├─────────────────────────────────────────┤
+│  ■ Pre-infusion (Node 1)               │
+│    시간: [slider] s   목표: [slider]    │
+│    커브: [Linear | Expo]                │
+├─────────────────────────────────────────┤
+│  ■ Extraction (Node 2)                  │
+│    시간: [slider] s   목표: [slider]    │
+│    커브: [Linear | Expo]                │
+├─────────────────────────────────────────┤
+│  ■ 변곡점 (Node 3~10)        [+ 추가]  │
+│    N3 (15.0s, 6.0bar) Δ5.0s [Lin|Exp]  │
+├─────────────────────────────────────────┤
+│  ■ 온도: [slider] ℃                     │
+│  ■ 종료: [slider] g                     │
+├─────────────────────────────────────────┤
+│  ▶ 추출 시뮬레이션 (접기/펼치기)         │
+│  ┌─── 시뮬레이션 그래프 ──────────┐     │
+│  │  압력(파랑) 추출량(갈색) 온도(빨강)│  │
+│  └────────────────────────────────┘     │
+└─────────────────────────────────────────┘
+```
+
+모든 슬라이더 변경 시 프로파일 그래프가 실시간 업데이트된다.
+
+---
+
+## 기술 스택
+
+| 항목 | 선택 |
+|------|------|
+| 프레임워크 | Flutter (Web 배포) |
+| 차트 | fl_chart v0.70.2 |
+| 상태관리 | Provider + ChangeNotifier |
+| 저장 | SharedPreferences (JSON) |
+| 배포 | GitHub Pages (GitHub Actions) |
+
+---
+
+## 파일 구조
+
+```
+lib/
+├── models/
+│   └── espresso_recipe.dart          # EspressoRecipe + ProfileWaypoint 데이터 모델
+├── services/
+│   └── recipe_service.dart           # CRUD, SharedPreferences 저장
+├── screens/
+│   └── recipe_editor_screen.dart     # 편집 화면 (헤더 + 그래프 + 컨트롤)
+└── widgets/
+    ├── interactive_profile_graph.dart # 터치/드래그 인터랙션 래퍼
+    └── profile_graph.dart            # ProfileGraph + SimulationGraph
+```
