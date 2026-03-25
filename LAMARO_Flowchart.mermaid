@@ -1,0 +1,122 @@
+%%{init: {'flowchart': {'nodeSpacing': 25, 'rankSpacing': 40, 'curve': 'basis'}}}%%
+flowchart TD
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 0 — 앱 진입
+    %% ══════════════════════════════════════════════════════════
+    START(["앱 시작"]) --> INTRO
+
+    subgraph INTRO["인트로 · 3안 중 택 1"]
+        direction LR
+        I1["#1 전화기"] ~~~ I2["#2 우산"] ~~~ I3["#3 Fade"]
+    end
+
+    INTRO --> MT["Mid-Transition"] --> S1
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 1 — 메인 대기
+    %% ══════════════════════════════════════════════════════════
+    subgraph MAIN["메인 / 대기 · Screen 1"]
+        S1["Screen 1\n메인 대기"]
+
+        S1 -- "비활동" --> SS["Screensaver"]
+        SS -- "터치" --> S1
+
+        subgraph SAVERS["화면보호기"]
+            direction LR
+            SS1["Circular\nText"] ~~~ SS2["Circular"] ~~~ SS3["DiagGrid"] ~~~ SS4["Rectangle"] ~~~ SS5["Strip"] ~~~ SS6["Strip\nText"]
+        end
+        SS --- SAVERS
+    end
+
+    S1 -. "BLE 끊김" .-> BLE_FAIL["블루투스 재연결"]
+    BLE_FAIL -. "성공" .-> S1
+    BLE_FAIL -. "실패" .-> BLE_SCREEN["BLE 복귀"]
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 2 — 분기
+    %% ══════════════════════════════════════════════════════════
+    S1 -- "설정 탭" --> S3["Screen 3 · 설정"]
+    S1 -- "레시피" --> S2
+    S1 -- "레버 내림" --> PREP
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 2 — 레시피 관리
+    %% ══════════════════════════════════════════════════════════
+    subgraph RECIPE["레시피 관리 · Screen 2"]
+        direction TB
+        S2["레시피 목록"]
+        RC["신규 생성\n파티클 이펙트"]
+        S2 -- "선택" --> RE["RecipeEditor"]
+        S2 -- "삭제" --> DR1["삭제 확인"] --> DR2(["삭제 완료"])
+        RC --> S2
+    end
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 3 — 레시피 에디터
+    %% ══════════════════════════════════════════════════════════
+    RE --> ED_HEAD
+
+    subgraph EDITOR["레시피 에디터 · RecipeEditorScreen"]
+        direction TB
+
+        ED_HEAD["헤더 · 이름 + 모드 bar/ml·s"]
+
+        subgraph GRAPH["인터랙티브 프로파일 그래프"]
+            GR_VIEW["ProfileGraph\n녹색PI + 노란색Ext·WP"]
+            GR_TAP["라인 탭 → 노드 추가"]
+            GR_DRAG["드래그 → 파라미터 변경"]
+            GR_VIEW --- GR_TAP
+            GR_VIEW --- GR_DRAG
+        end
+
+        subgraph CTRL["컨트롤 패널"]
+            direction TB
+            C_N1["N1 Pre-infusion\n시간·목표·커브"]
+            C_N2["N2 Extraction\n시간·목표·커브"]
+            C_WP["N3~10 변곡점\n추가/삭제 최대8"]
+            C_END["온도 80~100℃\n종료무게 0~70g"]
+            C_N1 --> C_N2 --> C_WP --> C_END
+        end
+
+        subgraph SIM["시뮬레이션 · 접기/펼치기"]
+            direction LR
+            SIM_P["압력/유량"] ~~~ SIM_T["온도"] ~~~ SIM_Y["추출량"]
+        end
+
+        ED_HEAD --> GRAPH
+        GRAPH -- "실시간 연동" --> CTRL
+        CTRL --> SIM
+        SIM --> SAVE(["저장 → 목록"])
+    end
+
+    %% ══════════════════════════════════════════════════════════
+    %%  DEPTH 2 — 추출 프로세스
+    %% ══════════════════════════════════════════════════════════
+    subgraph EXTRACT["추출 프로세스"]
+        direction TB
+        PREP["Preparing\n물·온도·유량·압력"]
+        PREP -- "물 부족" --> NW["No Water"] --> END_NW(["종료"])
+        PREP -- "물 충분" --> WT["Watering"] --> HT["Heating"]
+        HT --> EX1["#1"] --> EX2["#2"] --> EX3["#3"] --> EX4["#4"] --> EX5["#5"] --> DONE(["추출 완료"])
+        EX1 & EX2 & EX3 & EX4 & EX5 -- "취소" --> EC(["취소 → Screen1"])
+    end
+
+    %% ══════════════════════════════════════════════════════════
+    %%  스타일
+    %% ══════════════════════════════════════════════════════════
+    classDef confirmed fill:#d4edda,stroke:#28a745,color:#000
+    classDef draft     fill:#fff3cd,stroke:#ffc107,color:#000
+    classDef error     fill:#f8d7da,stroke:#dc3545,color:#000
+    classDef terminal  fill:#343a40,stroke:#000,color:#fff
+    classDef editor    fill:#ede7f6,stroke:#7C5CFC,color:#000
+    classDef simNode   fill:#e3f2fd,stroke:#2196F3,color:#000
+
+    class S1,S2,S3,RE,RC,DR1 confirmed
+    class EX1,EX2,EX3,EX4,EX5 confirmed
+    class PREP,WT,HT,SS,MT,BLE_FAIL,EC draft
+    class NW,END_NW,BLE_SCREEN error
+    class START,DONE,DR2,SAVE terminal
+    class ED_HEAD,GR_VIEW,GR_TAP,GR_DRAG editor
+    class C_N1,C_N2,C_WP,C_END editor
+    class SIM_P,SIM_T,SIM_Y simNode
